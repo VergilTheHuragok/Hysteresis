@@ -28,15 +28,6 @@ def _render():
     pygame.display.flip()
 
 
-def _render_loop():
-    """Render every textbox continuously."""
-    pygame.init()  # IMPORTANT: Use tkinter instead. Work with multithreading?
-
-    while running:
-        _render()
-        sleep(TICK)
-
-
 def _resize_display(size: List[int]):
     """Resize the display to the given size."""
     global display
@@ -44,7 +35,7 @@ def _resize_display(size: List[int]):
     display = pygame.display.set_mode(size, pygame.VIDEORESIZE)
 
 
-def _event_loop():
+def _check_events():
     """Check pygame events and execute accordingly."""
     global running
 
@@ -55,19 +46,25 @@ def _event_loop():
             _resize_display(event.dict['size'])
 
 
-def init():
-    """Initialize pygame and local vars."""
+def _display_loop():
+    """Handle all pygame functionality continuously."""
     global display
+
+    pygame.init()
 
     display = pygame.display.set_mode(RESOLUTION, pygame.RESIZABLE)
 
-    render_loop = Thread(target=_render_loop)
-    render_loop.setDaemon(True)
-    render_loop.start()
+    while running:
+        _render()
+        _check_events()
+        sleep(.01)
 
-    event_loop = Thread(target=_event_loop)
-    event_loop.setDaemon(True)
-    event_loop.start()
+
+def init():
+    """Create the display and handle all related functionality."""
+    display_thread = Thread(target=_display_loop)
+    display_thread.setDaemon(True)
+    display_thread.start()
 
 
 class TextBox:
@@ -82,7 +79,7 @@ class TextBox:
     """
 
     def __init__(self, pins: List[int]):
-        self.pins = pins
+        self.pins = pins  # TODO: Support fixed-width/height
         self.border_width = DEFAULT_BORDER_WIDTH
         self.border_color = DEFAULT_BORDER_COLOR
         with TEXTBOX_LOCK:
@@ -104,18 +101,20 @@ class TextBox:
         >>> a._get_rect(500, 300)
         [0, 0, 250, 300]
 
+        >>> a = TextBox([.3, .3, .6, 1])
+        >>> a._get_rect(100, 250)
+        [30, 75, 30, 175]
+
         """
         # Use pins as percentages to determine corresponding coordinate
-        coords = [*range(0, 4)]
-        for i, pin in enumerate(self.pins):
+        coords = [
+            self.pins[0] * width,
+            self.pins[1] * height
+        ]
+        coords.append(self.pins[2] * width - coords[0])
+        coords.append(self.pins[3] * height - coords[1])
 
-            if i % 2 == 0:
-                # Pin is even
-                max_length = width
-            else:
-                max_length = height
-
-            coords[i] = int(pin * max_length)
+        coords = [int(x) for x in coords]
 
         return coords
 
