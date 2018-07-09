@@ -1,31 +1,36 @@
-"""Handle all input and output."""
+"""Create the window and handle input."""
 
 from threading import Thread
 from time import sleep
 
-from .display import render, check_events
+from interface.display import render, running
 import interface.display
+
+import interface.input
 
 import pygame
 
 # Constants
 RESOLUTION = (500, 500)
 
-# TODO: cleanup imports
-
 
 def _interface_loop():
     """Handle all pygame functionality continuously."""
-    global display
-
     pygame.init()
 
     display = pygame.display.set_mode(RESOLUTION, pygame.RESIZABLE)
 
-    while interface.display.running:
+    while running:
+        # Render display
         render(display)
-        display = check_events(display)
-        pygame.display.flip()  # TODO: only render on change
+
+        # Handle events
+        events = pygame.event.get()
+        display = interface.display.check_events(display, events)
+
+        interface.input.check_events(events)
+
+        pygame.display.flip()  # TODO: only render on change; mark dirty
         sleep(.01)
 
 
@@ -34,3 +39,9 @@ def init():
     interface_thread = Thread(target=_interface_loop)
     interface_thread.setDaemon(True)
     interface_thread.start()
+
+
+def get_running():
+    """Check if the interface has been closed by the user or stopped."""
+    # EVENTUALLY: check if any important threads have terminated
+    return interface.display.running

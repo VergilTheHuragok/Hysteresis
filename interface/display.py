@@ -9,6 +9,7 @@ import pygame
 # Globals
 running = True
 
+# Constants
 TICK = .01
 TEXTBOX_LOCK = Lock()
 TEXTBOXES = []
@@ -29,17 +30,67 @@ def _resize_display(size: List[int]) -> pygame.Surface:
     return pygame.display.set_mode(size, pygame.VIDEORESIZE)
 
 
-def check_events(display: pygame.Surface) -> pygame.Surface:
-    """Check pygame events and execute accordingly."""
+def check_events(display: pygame.Surface, events: List[pygame.event.Event]) \
+        -> pygame.Surface:
+    """Check pygame display events and execute accordingly."""
     global running
 
-    for event in pygame.event.get():
+    for event in events:
         if event.type == pygame.QUIT:
             running = False
         elif event.type == pygame.VIDEORESIZE:
             display = _resize_display(event.dict['size'])
 
     return display
+
+
+class Text():
+    """Store text supporting fonts and colors."""
+
+    def __init__(self, text: str):
+        self.text = text
+
+    def render(self, display: pygame.Surface):
+        """Render the text to the given display."""
+        # TODO: Render text
+        pass
+
+
+class _Line():
+    """Store a line of text supporting fonts and colors."""
+
+    def __init__(self):
+
+        self.text_list = []
+
+    def render(self, display: pygame.Surface):
+        """Render all text in the line to the given display."""
+        for text in self.text_list:
+            text.render(display)
+
+
+class _TextList():
+    """Store lines of text supporting fonts and colors."""
+
+    def __init__(self):
+
+        self.master_text_list = []
+        self.lines = []
+
+    def __iadd__(self, text_list: List[Text]):
+        """Add a list of Text to this text_list."""
+        self.master_text_list += text_list
+
+    def _wrap(self):
+        """Wrap Text into _Lines."""
+        # TODO: Wraps
+        pass
+
+    def render(self, display: pygame.Surface):
+        """Render each line to the display."""
+        # TODO: Check if needs wrapped at render-time
+        for line in self.lines:
+            line.render(display)
 
 
 class TextBox:
@@ -57,6 +108,9 @@ class TextBox:
         self.pins = pins  # TODO: Support fixed-width/height
         self.border_width = DEFAULT_BORDER_WIDTH
         self.border_color = DEFAULT_BORDER_COLOR
+
+        self.text_list = _TextList()
+
         with TEXTBOX_LOCK:
             TEXTBOXES.append(self)
 
@@ -100,9 +154,22 @@ class TextBox:
         coords = self._get_rect(width, height)
         pygame.draw.rect(display, self.border_color, coords, self.border_width)
 
+    def add_text(self, text_list: List[Text]):
+        """Add text to the current input."""
+        self.text_list += text_list
+
     def render(self, display: pygame.Surface):
         """Draw the textbox to the given display."""
         self._draw_box(display)
+        self.text_list.render(display)
+
+
+class InputBox(TextBox):
+    """Allow text input and display said text."""
+
+    def __init__(self, display: pygame.Surface):
+        super().__init__(display)
+        # TODO: Allow use of cursor.
 
 
 if __name__ == "__main__":
