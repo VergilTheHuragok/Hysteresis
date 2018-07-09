@@ -1,6 +1,6 @@
 """Write to the display and create textboxes."""
-from threading import Lock, Thread
-from time import sleep
+
+from threading import Lock
 from typing import List
 
 import pygame
@@ -8,10 +8,7 @@ import pygame
 
 # Globals
 running = True
-display = None
 
-# Constants
-RESOLUTION = (500, 500)
 TICK = .01
 TEXTBOX_LOCK = Lock()
 TEXTBOXES = []
@@ -20,22 +17,19 @@ DEFAULT_BORDER_WIDTH = 1
 DEFAULT_BORDER_COLOR = (255, 255, 255)
 
 
-def _render():
+def render(display: pygame.Surface):
     """Render every textbox."""
     with TEXTBOX_LOCK:
         for textbox in TEXTBOXES:
-            textbox.render()
-    pygame.display.flip()
+            textbox.render(display)
 
 
-def _resize_display(size: List[int]):
+def _resize_display(size: List[int]) -> pygame.Surface:
     """Resize the display to the given size."""
-    global display
-
-    display = pygame.display.set_mode(size, pygame.VIDEORESIZE)
+    return pygame.display.set_mode(size, pygame.VIDEORESIZE)
 
 
-def _check_events():
+def check_events(display: pygame.Surface) -> pygame.Surface:
     """Check pygame events and execute accordingly."""
     global running
 
@@ -43,28 +37,9 @@ def _check_events():
         if event.type == pygame.QUIT:
             running = False
         elif event.type == pygame.VIDEORESIZE:
-            _resize_display(event.dict['size'])
+            display = _resize_display(event.dict['size'])
 
-
-def _display_loop():
-    """Handle all pygame functionality continuously."""
-    global display
-
-    pygame.init()
-
-    display = pygame.display.set_mode(RESOLUTION, pygame.RESIZABLE)
-
-    while running:
-        _render()
-        _check_events()
-        sleep(.01)
-
-
-def init():
-    """Create the display and handle all related functionality."""
-    display_thread = Thread(target=_display_loop)
-    display_thread.setDaemon(True)
-    display_thread.start()
+    return display
 
 
 class TextBox:
@@ -118,16 +93,16 @@ class TextBox:
 
         return coords
 
-    def _draw_box(self):
+    def _draw_box(self, display: pygame.Surface):
         """Draw the outline of the textbox to the display."""
         width = display.get_width()
         height = display.get_height()
         coords = self._get_rect(width, height)
         pygame.draw.rect(display, self.border_color, coords, self.border_width)
 
-    def render(self):
+    def render(self, display: pygame.Surface):
         """Draw the textbox to the given display."""
-        self._draw_box()
+        self._draw_box(display)
 
 
 if __name__ == "__main__":
