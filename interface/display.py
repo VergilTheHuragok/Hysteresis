@@ -1,5 +1,8 @@
 """Write to the display and create textboxes."""
 
+# NOTE: No defaults should be allowed in this module.
+# Defaults are handled higher-up
+
 from threading import Lock
 from typing import List
 
@@ -44,11 +47,50 @@ def check_events(display: pygame.Surface, events: List[pygame.event.Event]) \
     return display
 
 
+class Font():
+    """Store all values relating to the display of Text."""
+
+    def __init__(self, font_name, size, bold=False, italic=False,
+                 highlight=None):
+
+        self.font_name = font_name
+        self.size = size
+
+        self.bold = bold
+        self.italic = italic
+        self.highlight = highlight  # TODO: Enable highlight functionality
+
+        self.label = None
+
+    def _create_label(self):
+        """Create the pygame Font Label for blitting to Surfaces."""
+        self.label = pygame.font.SysFont(
+            self.font_name, self.size, self.bold, self.italic)
+
+    def get_label(self):
+        """Return a memoized label created from the font."""
+        if isinstance(self.label, type(None)):
+            self._create_label()
+        return self.label
+
+    def __eq__(self, other_font):
+        """Compare the font object to another."""
+        try:
+            font_name = self.font_name == other_font.font_name
+            size = self.size == other_font.size
+            bold = self.bold == other_font.bold
+            italic = self.italic == other_font.italic
+            return font_name and size and bold and italic
+        except AttributeError:
+            return False
+
+
 class Text():
     """Store text supporting fonts and colors."""
 
-    def __init__(self, text: str):
+    def __init__(self, text: str, font: Font = None):
         self.text = text
+        self.font = font
 
     def render(self, display: pygame.Surface):
         """Render the text to the given display."""
