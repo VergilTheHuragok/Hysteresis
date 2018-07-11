@@ -30,7 +30,7 @@ def _interface_loop():
 
         interface.input.check_events(events)
 
-        pygame.display.flip()  # TODO: only render on change; mark dirty
+        pygame.display.flip()
         sleep(.01)
 
 

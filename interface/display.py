@@ -4,7 +4,7 @@
 # Defaults are handled higher-up
 
 from threading import Lock
-from typing import List
+from typing import List, Tuple
 
 import pygame
 
@@ -20,16 +20,35 @@ TEXTBOXES = []
 DEFAULT_BORDER_WIDTH = 1
 DEFAULT_BORDER_COLOR = (255, 255, 255)
 
+DIRTY = False
 
-def render(display: pygame.Surface):
-    """Render every textbox."""
-    with TEXTBOX_LOCK:
-        for textbox in TEXTBOXES:
-            textbox.render(display)
+font_objects = {}
+FONT_LOCK = Lock()
+
+
+def _mark_dirty():
+    """Mark the display dirty (i.e. set to redraw)."""
+    global DIRTY
+
+    DIRTY = True
+
+
+def render(display: pygame.Surface, fill_color: Tuple[int, int, int] = None):
+    """Render every textbox if DIRTY."""
+    global DIRTY
+
+    if DIRTY:
+        if not isinstance(fill_color, type(None)):
+            display.fill(fill_color)
+        with TEXTBOX_LOCK:
+            for textbox in TEXTBOXES:
+                textbox.render(display)
+        DIRTY = False
 
 
 def _resize_display(size: List[int]) -> pygame.Surface:
     """Resize the display to the given size."""
+    _mark_dirty()
     return pygame.display.set_mode(size, pygame.VIDEORESIZE)
 
 
@@ -47,50 +66,103 @@ def check_events(display: pygame.Surface, events: List[pygame.event.Event]) \
     return display
 
 
+def get_font_repr(font_name: str, size: int, bold: bool, italic: bool):
+    """Return a string representation of the font object."""
+    return (f'Font(font_name=\'{font_name}\', size={size}, bold={bold}, '
+            f'italic={italic})')
+
+
 class Font():
     """Store all values relating to the display of Text."""
 
-    def __init__(self, font_name, size, bold=False, italic=False,
-                 highlight=None):
+    def __init__(self, font_name: str, size: int, bold: bool = False,
+                 italic: bool = False):
 
         self.font_name = font_name
         self.size = size
-
         self.bold = bold
         self.italic = italic
-        self.highlight = highlight  # TODO: Enable highlight functionality
 
-        self.label = None
+        self.pygame_font = None
+        self._create_pygame_font()
 
-    def _create_label(self):
-        """Create the pygame Font Label for blitting to Surfaces."""
-        self.label = pygame.font.SysFont(
+        with FONT_LOCK:
+            font_objects[repr(self)] = self
+
+    def _create_pygame_font(self):
+        """Create the pygame Font for blitting to Surfaces."""
+        self.pygame_font = pygame.font.SysFont(
             self.font_name, self.size, self.bold, self.italic)
 
-    def get_label(self):
-        """Return a memoized label created from the font."""
-        if isinstance(self.label, type(None)):
-            self._create_label()
-        return self.label
+    def get_pygame_font(self) -> pygame.font.Font:
+        """Return a memoized pygame font created from the font."""
+        if isinstance(self.pygame_font, type(None)):
+            self._create_pygame_font()
+        return self.pygame_font
 
-    def __eq__(self, other_font):
+    def __repr__(self) -> str:
+        """Return a string representation of the font object."""
+        return get_font_repr(self.font_name, self.size, self.bold, self.italic)
+
+    def __eq__(self, other) -> bool:
         """Compare the font object to another."""
         try:
-            font_name = self.font_name == other_font.font_name
-            size = self.size == other_font.size
-            bold = self.bold == other_font.bold
-            italic = self.italic == other_font.italic
+            font_name = self.font_name == other.font_name
+            size = self.size == other.size
+            bold = self.bold == other.bold
+            italic = self.italic == other.italic
             return font_name and size and bold and italic
         except AttributeError:
             return False
 
 
 class Text():
-    """Store text supporting fonts and colors."""
+    """Store text supporting fonts and colors. """
 
-    def __init__(self, text: str, font: Font = None):
+    def __init__(self, text: str, font: Font):
         self.text = text
         self.font = font
+        self.original_font_repr = repr(self.font)
+
+    def reset_font(self):
+        """Reset the text's font to the original based."""
+        self.font = font_objects[self.original_font_repr]
+        _mark_dirty()
+
+    def change_font(self, font_name: str = None, size: int = None,
+                    bold: bool = None, italic: bool = None):
+        """Alter the font of the text.
+        
+        Examples
+        --------
+        >>> import pygame
+        >>> pygame.init() # doctest: +ELLIPSIS
+        (...
+        >>> a = Text("test", Font("monospace", 17))
+        >>> a.font
+        Font(font_name='monospace', size=17, bold=False, italic=False)
+        >>> a.change_font(size=20, italic=True)
+        >>> a.font
+        Font(font_name='monospace', size=20, bold=False, italic=True)
+        """
+        global font_objects
+        # Get either old or changed values
+        new_font_name = self.font.font_name if isinstance(
+            font_name, type(None)) else font_name
+        new_size = self.font.size if isinstance(size, type(None)) else size
+        new_bold = self.font.bold if isinstance(bold, type(None)) else bold
+        new_italic = self.font.italic if isinstance(
+            italic, type(None)) else italic
+
+        # Check if font already exists
+        new_font_repr = get_font_repr(
+            new_font_name, new_size, new_bold, new_italic)
+        with FONT_LOCK:
+            if new_font_repr not in font_objects:
+                new_font = Font(new_font_name, new_size, new_bold, new_italic)
+                font_objects[new_font_repr] = new_font
+            self.font = font_objects[new_font_repr]
+        _mark_dirty()
 
     def render(self, display: pygame.Surface):
         """Render the text to the given display."""
