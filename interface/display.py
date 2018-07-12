@@ -4,7 +4,8 @@
 # Defaults are handled higher-up
 
 from threading import Lock
-from typing import Sequence, List, Tuple
+from collections import deque
+from typing import Iterable, List, Tuple, Deque
 
 import pygame
 
@@ -21,6 +22,10 @@ DEFAULT_BORDER_WIDTH = 1
 DEFAULT_BORDER_COLOR = (255, 255, 255)
 DEFAULT_TEXT_COLOR = (255, 255, 255)
 
+# These must be ordered and do not require fast containment checks
+SPLIT_AFTER_CHARS = [' -.,)>]}']
+SPLIT_BEFORE_CHARS = ['(<[{']
+
 DIRTY = False
 
 font_objects = {}
@@ -34,7 +39,7 @@ def _mark_dirty():
     DIRTY = True
 
 
-def render(display: pygame.Surface, fill_color: Sequence[int] = None):
+def render(display: pygame.Surface, fill_color: Iterable[int] = None):
     """Render every textbox if DIRTY."""
     global DIRTY
 
@@ -50,18 +55,18 @@ def render(display: pygame.Surface, fill_color: Sequence[int] = None):
 def _rewrap():
     """Rewrap all textboxes."""
     for textbox in TEXTBOXES:
-        textbox.mark_wrap()
+        textbox.text_wrap.mark_wrap()
 
 
-def _resize_display(size: Sequence[int]) -> pygame.Surface:
+def _resize_display(size: Iterable[int]) -> pygame.Surface:
     """Resize the display to the given size."""
     _mark_dirty()
     _rewrap()
     return pygame.display.set_mode(size, pygame.VIDEORESIZE)
 
 
-def check_events(display: pygame.Surface, events: Sequence[pygame.event.Event]) \
-        -> pygame.Surface:
+def check_events(display: pygame.Surface,
+                 events: Iterable[pygame.event.Event]) -> pygame.Surface:
     """Check pygame display events and execute accordingly."""
     global running
 
@@ -127,8 +132,8 @@ class Font():
 class Text():
     """Store text supporting fonts and colors."""
 
-    def __init__(self, text: str, font: Font, color: Sequence[int] = None,
-                 highlight: Sequence[int] = None):
+    def __init__(self, text: str, font: Font, color: Iterable[int] = None,
+                 highlight: Iterable[int] = None):
         self.text = text
         self.font = font
         self.color = color
@@ -139,7 +144,7 @@ class Text():
         self.original_font_repr = repr(self.font)
         self.pos = None
 
-    def set_pos(self, pos: Sequence[int]):
+    def set_pos(self, pos: Iterable[int]):
         """Set the Text's pos."""
         if pos != self.pos:
             self.pos = pos
@@ -213,23 +218,139 @@ class Text():
         return self.font.get_pygame_font().size(self.text)
 
 
-def get_line_size(line: Sequence[Text]) -> Tuple[int]:
-    """Calculate the length of the line based on font sizes.
-    
-    Examples
-    --------
-    >>> a = Font("courier new", 20)
-    >>> b = Text("_", a)
-    >>> get_line_size([b, b, b, b])
-    (48, 24)
+class _Line():
+    """Store text in a line."""
 
-    """
-    width, height = 0, 0
-    for text in line:
-        new_width, new_height = text.get_size()
-        width += new_width
-        height = max(height, new_height)
-    return width, height
+    def __init__(self):
+        self.text_list = deque()
+        self.width = 0
+        self.height = 0
+
+    def _add_text(self, new_text: Text, text_size: Tuple[int]):
+        """Add text to the line.
+
+        Examples
+        --------
+        >>> a = Font("courier new", 20)
+        >>> b = Text("_", a)
+        >>> c = _Line([b, b, b, b])
+        >>> (c.width, c.height)
+        (48, 24)
+
+        """
+        # Record dimensions while still a list
+        # EVENTUALLY: If move sizing outside method, remove method
+        self.width += text_size[0]
+        self.height = max(self.height, text_size[1])
+        self.text_list.append(new_text)
+    
+    def fit_text(self, text_list: List[Text], box_width: int) -> Deque[Text]:
+        """Add text which fits and return the rest."""
+        while text_list:
+
+            text = text_list.popLeft()
+            text_width, text_height = text.get_size()
+
+            if self.width + text_width <= box_width:
+                self._add_text(text, (text_width, text_height))
+
+            else:
+                pass  # TODO: Finish
+
+    def __iter__(self):
+        """Iterate over the line."""
+        for text in self.text_list:
+            yield text
+            
+
+
+class _TextWrap():
+    """Store wrapped text and handle wrapping."""
+
+    def __init__(self):
+        self.wrapped_text_list = deque()
+        self.new_text_list = deque()
+        self.lines = deque()
+        self.unloaded_lines_old = deque()
+        self.unloaded_lines_new = deque()
+
+    def _next_line(self):
+        """Get the next line to be filled."""
+        if self.lines:
+            line = self.lines.pop()
+        else:
+            line = _Line()
+        return line
+
+    def _wrap_new_lines(self, coords: List[int]):
+        """Wrap text into lines."""
+        assert(not isinstance(coords, type(None)))
+
+        x = coords[0]
+        text_y_pos = coords[1]
+        box_width = coords[2]
+
+        line = self._next_line()
+
+        line_width = line.width
+
+        while self.new_text_list:
+            text = self.new_text_list.popleft()
+            text_width, _ = text.get_size()
+
+            # Over width
+            if line_width + text_width > box_width:
+                self.lines.append(line)
+                line = _Line()
+                text_y_pos += self.lines[-1].height
+                line_width = 0
+                self.new_text_list.appendleft(text)
+
+                # TODO: Convert to _Line methods to flatten code
+                # TODO: Check if will fit on new line
+                #       If not, split word
+                #       If down to single char, just skip if does not fit
+
+            # Room in line
+            else:
+
+                # Add to line
+                text.set_pos((line_width + x, text_y_pos))
+                line._add_text(text, text.get_size())
+                self.wrapped_text_list.append(text)
+                line_width += text_width
+
+        if line:
+            self.lines.append(line)
+
+        _mark_dirty()
+
+    def mark_wrap(self):
+        """Set to be re-wrapped."""
+        self.lines.clear()
+        # Move old lines back into
+        self.wrapped_text_list.reverse()
+        self.new_text_list.extendleft(self.wrapped_text_list)
+        self.wrapped_text_list.clear()
+
+    def add_text(self, text_list: Iterable[Text]):
+        """Add text to the current input."""
+        self.new_text_list.extend(text_list)
+
+    def render(self, display: pygame.Surface, coords: List[int]):
+        """Render the lines of text."""
+        if not self.lines:
+            # No lines have been wrapped
+            if self.wrapped_text_list:
+                # Lines available to wrap
+                self._wrap_new_lines(coords)
+        if self.new_text_list:
+            # New lines need wrapped
+            self._wrap_new_lines(coords)
+
+        for line in self.lines:
+            for text in line:
+                text.render(display)
 
 
 class TextBox:
@@ -243,16 +364,12 @@ class TextBox:
 
     """
 
-    def __init__(self, pins: Sequence[int]):
+    def __init__(self, pins: Iterable[int]):
         self.pins = pins  # TODO: Support fixed-width/height
         self.border_width = DEFAULT_BORDER_WIDTH
         self.border_color = DEFAULT_BORDER_COLOR
 
-        self.wrapped_text_list = []
-        self.new_text_list = []
-        self.lines = []
-        self.unloaded_lines_old = []
-        self.unloaded_lines_new = []
+        self.text_wrap = _TextWrap()
 
         self.coords = None
 
@@ -299,75 +416,10 @@ class TextBox:
         coords = self._get_rect(width, height)
         pygame.draw.rect(display, self.border_color, coords, self.border_width)
 
-    def _wrap(self):
-        """Wrap text into lines."""
-        assert(not isinstance(self.coords, type(None)))
-
-        x = self.coords[0]
-        y = self.coords[1]
-        box_width = self.coords[2]
-
-        if self.lines:
-            line = self.lines.pop()
-        else:
-            line = []
-        line_width, _ = get_line_size(line)
-
-        for text in self.new_text_list:
-
-            text_width, _ = text.get_size()
-
-            while True:
-
-                if line_width + text_width > box_width:
-                    # TODO: Split text if necessary
-                    # BUG: Freeze when larger than screen
-                    # EVENTUALLY: Split this function into functions
-                    #             Separate class for word wrap stuff?
-                    self.lines.append(line)
-                    line = []
-                    y += get_line_size(self.lines[-1])[1]
-                    line_width = 0
-                    # TODO: Test if outside screen
-
-                else:
-                    text.set_pos((line_width + x, y))
-                    line.append(text)
-                    # self.wrapped_text_list.append(text)
-                    line_width += text_width
-                    break
-        if line:
-            self.lines.append(line)
-
-        _mark_dirty()
-
-    def mark_wrap(self):
-        """Set to be re-wrapped."""
-        self.lines = []
-        # Move old lines back into
-        self.new_text_list = self.wrapped_text_list + self.new_text_list
-        self.wrapped_text_list = []
-
-    def add_text(self, text_list: Sequence[Text]):
-        """Add text to the current input."""
-        self.new_text_list += text_list
-
     def render(self, display: pygame.Surface):
         """Draw the textbox to the given display."""
         self._draw_box(display)
-
-        if not self.lines:
-            # No lines have been wrapped
-            if self.wrapped_text_list:
-                # Lines available to wrap
-                self._wrap()
-        if self.new_text_list:
-            # New lines need wrapped
-            self._wrap()
-
-        for line in self.lines:
-            for text in line:
-                text.render(display)
+        self.text_wrap.render(display, self.coords)
 
 
 class InputBox(TextBox):

@@ -6,18 +6,16 @@ import interface.start
 
 interface.start.init()
 
-font1 = Font("Comic Sans", 50, True, True)
+font1 = Font("Courier New", 50, True, True)
 
-x = TextBox([0, .1, .7, .5])
-y = TextBox([.3, .3, .6, 1])
+x = TextBox([.1, .1, .45, .9])
+y = TextBox([.55, .1, .9, .9])
 # InputBox([0, 0, 1, 1])
 
-for i in range(0, 1000):
-    x.add_text([Text(str(i), font1, (255, 0, 255), (0, 0, 255))])
-    y.add_text([Text(str(i), font1, highlight=(255, 0, 255))])
-
-# BUG: Occasionally freezes on launch with no changes
-#      Due to screen resizing right at start?
+for i in range(0, 100):
+    x.text_wrap.add_text([Text(str(i) + ', ', font1, (255, 255, 255))])
+    y.text_wrap.add_text([Text(str(i) + ', ', font1, (255, 255, 255))])
+# y.add_text([Text(''.join(str(i) for i in range(0, 1000)), font1, highlight=(255, 0, 255))])
 
 while interface.start.get_running():
     sleep(.01)
