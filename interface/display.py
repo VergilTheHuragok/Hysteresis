@@ -4,7 +4,7 @@
 # Defaults are handled higher-up
 
 from threading import Lock
-from typing import List, Tuple
+from typing import Sequence, List, Tuple
 
 import pygame
 
@@ -19,6 +19,7 @@ TEXTBOXES = []
 
 DEFAULT_BORDER_WIDTH = 1
 DEFAULT_BORDER_COLOR = (255, 255, 255)
+DEFAULT_TEXT_COLOR = (255, 255, 255)
 
 DIRTY = False
 
@@ -33,7 +34,7 @@ def _mark_dirty():
     DIRTY = True
 
 
-def render(display: pygame.Surface, fill_color: Tuple[int, int, int] = None):
+def render(display: pygame.Surface, fill_color: Sequence[int] = None):
     """Render every textbox if DIRTY."""
     global DIRTY
 
@@ -46,13 +47,20 @@ def render(display: pygame.Surface, fill_color: Tuple[int, int, int] = None):
         DIRTY = False
 
 
-def _resize_display(size: List[int]) -> pygame.Surface:
+def _rewrap():
+    """Rewrap all textboxes."""
+    for textbox in TEXTBOXES:
+        textbox.mark_wrap()
+
+
+def _resize_display(size: Sequence[int]) -> pygame.Surface:
     """Resize the display to the given size."""
     _mark_dirty()
+    _rewrap()
     return pygame.display.set_mode(size, pygame.VIDEORESIZE)
 
 
-def check_events(display: pygame.Surface, events: List[pygame.event.Event]) \
+def check_events(display: pygame.Surface, events: Sequence[pygame.event.Event]) \
         -> pygame.Surface:
     """Check pygame display events and execute accordingly."""
     global running
@@ -117,33 +125,64 @@ class Font():
 
 
 class Text():
-    """Store text supporting fonts and colors. """
+    """Store text supporting fonts and colors."""
 
-    def __init__(self, text: str, font: Font):
+    def __init__(self, text: str, font: Font, color: Sequence[int] = None,
+                 highlight: Sequence[int] = None):
         self.text = text
         self.font = font
+        self.color = color
+        if isinstance(color, type(None)):
+            self.color = DEFAULT_TEXT_COLOR
+        self.highlight = highlight
+
         self.original_font_repr = repr(self.font)
+        self.pos = None
+
+    def set_pos(self, pos: Sequence[int]):
+        """Set the Text's pos."""
+        if pos != self.pos:
+            self.pos = pos
 
     def reset_font(self):
-        """Reset the text's font to the original based."""
+        """Reset the text's font to the original based.
+
+        Examples
+        --------
+        >>> _ = pygame.init()
+        >>> a = Text("test", Font("courier new", 17))
+        >>> a.font
+        Font(font_name='courier new', size=17, bold=False, italic=False)
+        >>> a.edit_font(size=20, italic=True)
+        >>> a.font
+        Font(font_name='courier new', size=20, bold=False, italic=True)
+        >>> a.reset_font()
+        >>> a.font
+        Font(font_name='courier new', size=17, bold=False, italic=False)
+
+        """
         self.font = font_objects[self.original_font_repr]
         _mark_dirty()
 
-    def change_font(self, font_name: str = None, size: int = None,
-                    bold: bool = None, italic: bool = None):
+    def change_font(self, font: Font):
+        """Change the Font to a new Font object."""
+        self.font = font
+        _mark_dirty()
+
+    def edit_font(self, font_name: str = None, size: int = None,
+                  bold: bool = None, italic: bool = None):
         """Alter the font of the text.
-        
+
         Examples
         --------
-        >>> import pygame
-        >>> pygame.init() # doctest: +ELLIPSIS
-        (...
-        >>> a = Text("test", Font("monospace", 17))
+        >>> _ = pygame.init()
+        >>> a = Text("test", Font('courier new', 17))
         >>> a.font
-        Font(font_name='monospace', size=17, bold=False, italic=False)
-        >>> a.change_font(size=20, italic=True)
+        Font(font_name='courier new', size=17, bold=False, italic=False)
+        >>> a.edit_font(size=20, italic=True)
         >>> a.font
-        Font(font_name='monospace', size=20, bold=False, italic=True)
+        Font(font_name='courier new', size=20, bold=False, italic=True)
+
         """
         global font_objects
         # Get either old or changed values
@@ -157,54 +196,40 @@ class Text():
         # Check if font already exists
         new_font_repr = get_font_repr(
             new_font_name, new_size, new_bold, new_italic)
-        with FONT_LOCK:
-            if new_font_repr not in font_objects:
-                new_font = Font(new_font_name, new_size, new_bold, new_italic)
-                font_objects[new_font_repr] = new_font
-            self.font = font_objects[new_font_repr]
+        if new_font_repr not in font_objects:
+            new_font = Font(new_font_name, new_size, new_bold, new_italic)
+            font_objects[new_font_repr] = new_font
+        self.font = font_objects[new_font_repr]
         _mark_dirty()
 
     def render(self, display: pygame.Surface):
         """Render the text to the given display."""
-        # TODO: Render text
-        pass
+        font = self.font.get_pygame_font()
+        label = font.render(self.text, 1, self.color, self.highlight)
+        display.blit(label, self.pos)
+
+    def get_size(self) -> Tuple[int]:
+        """Return the dimensions of the text."""
+        return self.font.get_pygame_font().size(self.text)
 
 
-class _Line():
-    """Store a line of text supporting fonts and colors."""
+def get_line_size(line: Sequence[Text]) -> Tuple[int]:
+    """Calculate the length of the line based on font sizes.
+    
+    Examples
+    --------
+    >>> a = Font("courier new", 20)
+    >>> b = Text("_", a)
+    >>> get_line_size([b, b, b, b])
+    (48, 24)
 
-    def __init__(self):
-
-        self.text_list = []
-
-    def render(self, display: pygame.Surface):
-        """Render all text in the line to the given display."""
-        for text in self.text_list:
-            text.render(display)
-
-
-class _TextList():
-    """Store lines of text supporting fonts and colors."""
-
-    def __init__(self):
-
-        self.master_text_list = []
-        self.lines = []
-
-    def __iadd__(self, text_list: List[Text]):
-        """Add a list of Text to this text_list."""
-        self.master_text_list += text_list
-
-    def _wrap(self):
-        """Wrap Text into _Lines."""
-        # TODO: Wraps
-        pass
-
-    def render(self, display: pygame.Surface):
-        """Render each line to the display."""
-        # TODO: Check if needs wrapped at render-time
-        for line in self.lines:
-            line.render(display)
+    """
+    width, height = 0, 0
+    for text in line:
+        new_width, new_height = text.get_size()
+        width += new_width
+        height = max(height, new_height)
+    return width, height
 
 
 class TextBox:
@@ -218,12 +243,18 @@ class TextBox:
 
     """
 
-    def __init__(self, pins: List[int]):
+    def __init__(self, pins: Sequence[int]):
         self.pins = pins  # TODO: Support fixed-width/height
         self.border_width = DEFAULT_BORDER_WIDTH
         self.border_color = DEFAULT_BORDER_COLOR
 
-        self.text_list = _TextList()
+        self.wrapped_text_list = []
+        self.new_text_list = []
+        self.lines = []
+        self.unloaded_lines_old = []
+        self.unloaded_lines_new = []
+
+        self.coords = None
 
         with TEXTBOX_LOCK:
             TEXTBOXES.append(self)
@@ -257,9 +288,9 @@ class TextBox:
         coords.append(self.pins[2] * width - coords[0])
         coords.append(self.pins[3] * height - coords[1])
 
-        coords = [int(x) for x in coords]
+        self.coords = [int(x) for x in coords]
 
-        return coords
+        return self.coords
 
     def _draw_box(self, display: pygame.Surface):
         """Draw the outline of the textbox to the display."""
@@ -268,14 +299,75 @@ class TextBox:
         coords = self._get_rect(width, height)
         pygame.draw.rect(display, self.border_color, coords, self.border_width)
 
-    def add_text(self, text_list: List[Text]):
+    def _wrap(self):
+        """Wrap text into lines."""
+        assert(not isinstance(self.coords, type(None)))
+
+        x = self.coords[0]
+        y = self.coords[1]
+        box_width = self.coords[2]
+
+        if self.lines:
+            line = self.lines.pop()
+        else:
+            line = []
+        line_width, _ = get_line_size(line)
+
+        for text in self.new_text_list:
+
+            text_width, _ = text.get_size()
+
+            while True:
+
+                if line_width + text_width > box_width:
+                    # TODO: Split text if necessary
+                    # BUG: Freeze when larger than screen
+                    # EVENTUALLY: Split this function into functions
+                    #             Separate class for word wrap stuff?
+                    self.lines.append(line)
+                    line = []
+                    y += get_line_size(self.lines[-1])[1]
+                    line_width = 0
+                    # TODO: Test if outside screen
+
+                else:
+                    text.set_pos((line_width + x, y))
+                    line.append(text)
+                    # self.wrapped_text_list.append(text)
+                    line_width += text_width
+                    break
+        if line:
+            self.lines.append(line)
+
+        _mark_dirty()
+
+    def mark_wrap(self):
+        """Set to be re-wrapped."""
+        self.lines = []
+        # Move old lines back into
+        self.new_text_list = self.wrapped_text_list + self.new_text_list
+        self.wrapped_text_list = []
+
+    def add_text(self, text_list: Sequence[Text]):
         """Add text to the current input."""
-        self.text_list += text_list
+        self.new_text_list += text_list
 
     def render(self, display: pygame.Surface):
         """Draw the textbox to the given display."""
         self._draw_box(display)
-        self.text_list.render(display)
+
+        if not self.lines:
+            # No lines have been wrapped
+            if self.wrapped_text_list:
+                # Lines available to wrap
+                self._wrap()
+        if self.new_text_list:
+            # New lines need wrapped
+            self._wrap()
+
+        for line in self.lines:
+            for text in line:
+                text.render(display)
 
 
 class InputBox(TextBox):
