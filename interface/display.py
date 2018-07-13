@@ -10,6 +10,8 @@ from typing import Iterable, List, Tuple, Deque
 import pygame
 
 
+# CLEAN: Determine necessary locations for _mark_dirty()
+
 # Globals
 running = True
 
@@ -23,13 +25,20 @@ DEFAULT_BORDER_COLOR = (255, 255, 255)
 DEFAULT_TEXT_COLOR = (255, 255, 255)
 
 # These must be ordered and do not require fast containment checks
-SPLIT_AFTER_CHARS = [' -.,)>]}']
-SPLIT_BEFORE_CHARS = ['(<[{']
+SPLIT_CHARS_AFTER = [' -.,)>]}']
+SPLIT_CHARS_BEFORE = ['(<[{']
+SPLIT_CHARS_ALL = SPLIT_CHARS_AFTER + SPLIT_CHARS_BEFORE
+SPLIT_CHARS_SET = set(SPLIT_CHARS_ALL)
 
 DIRTY = False
 
 font_objects = {}
 FONT_LOCK = Lock()
+
+
+def _split_chars_sort(char: Iterable[str]) -> int:
+    """Sort an Iterable of split chars."""
+    return SPLIT_CHARS_ALL.index(char)
 
 
 def _mark_dirty():
@@ -144,10 +153,11 @@ class Text():
         self.original_font_repr = repr(self.font)
         self.pos = None
 
+        self.split_sections = []  # Need fast indexing
+
     def set_pos(self, pos: Iterable[int]):
         """Set the Text's pos."""
-        if pos != self.pos:
-            self.pos = pos
+        self.pos = pos
 
     def reset_font(self):
         """Reset the text's font to the original based.
@@ -169,8 +179,8 @@ class Text():
         self.font = font_objects[self.original_font_repr]
         _mark_dirty()
 
-    def change_font(self, font: Font):
-        """Change the Font to a new Font object."""
+    def set_font(self, font: Font):
+        """Set the Font to a new Font object."""
         self.font = font
         _mark_dirty()
 
@@ -207,15 +217,71 @@ class Text():
         self.font = font_objects[new_font_repr]
         _mark_dirty()
 
-    def render(self, display: pygame.Surface):
-        """Render the text to the given display."""
+    def split(self) -> int:
+        """Split at the optimal location.
+
+        Returns
+        -------
+        The index of the created splint_ind in self.split_sections.
+
+        """
+        possible_split_points = {}
+        for ind, char in enumerate(self.text):
+            if char in SPLIT_CHARS_SET:
+                # Only take split char closest to end
+                possible_split_points[char] = ind
+
+        if not possible_split_points:
+            return None
+
+        split_chars_sorted = sorted(possible_split_points.keys(),
+                                    key=_split_chars_sort)
+        split_char = split_chars_sorted[0]
+        split_ind = possible_split_points[split_char]
+        self.split_sections.append(split_ind)
+        return len(self.split_sections) - 1
+
+    def _get_text_section(self, split_section: int = None):
+        """Get the text which should be rendered for this section."""
+        if self.split_sections:
+            assert(not isinstance(split_section, type(None)))
+
+            start = None
+            end = None
+            if split_section == 0:
+                # TODO: Exclusive?
+                end = self.split_sections[0]
+            elif split_section == len(self.split_sections) - 1:
+                start = self.split_sections[-1]
+            else:
+                start = self.split_sections[split_section]
+                end = self.split_sections[split_section + 1]
+
+            text_slice = slice(start, end)
+            text = self.text[text_slice]
+        else:
+            text = self.text
+
+        return text
+
+    def render(self, display: pygame.Surface, split_section: int = None):
+        """Render the text to the given display.
+
+        Parameters
+        ----------
+        split_section
+            If text contains a split, a section number must be provided.
+
+        """
+        text = self._get_text_section(split_section)
         font = self.font.get_pygame_font()
-        label = font.render(self.text, 1, self.color, self.highlight)
+        label = font.render(text, 1, self.color, self.highlight)
         display.blit(label, self.pos)
 
-    def get_size(self) -> Tuple[int]:
+    def get_size(self, split_section: int = None) -> Tuple[int]:
         """Return the dimensions of the text."""
-        return self.font.get_pygame_font().size(self.text)
+        text = self._get_text_section(split_section)
+        return self.font.get_pygame_font().size(text)
 
 
 class _Line():
@@ -225,43 +291,91 @@ class _Line():
         self.text_list = deque()
         self.width = 0
         self.height = 0
+        self.pos = None
 
-    def _add_text(self, new_text: Text, text_size: Tuple[int]):
-        """Add text to the line.
+        self.split_sections = []
+
+    def set_pos(self, pos: Tuple[int]):
+        """Set the pos of the _Line."""
+        self.pos = pos
+
+    def fit_text(self, box_text_list: Deque[Text], box_width: int,
+                 split_sections: Deque[int]) -> Deque[Text]:
+        """Add text which fits and return the rest.
+
+        Returns
+        -------
+        Text added to the line.
 
         Examples
         --------
-        >>> a = Font("courier new", 20)
-        >>> b = Text("_", a)
-        >>> c = _Line([b, b, b, b])
-        >>> (c.width, c.height)
+        >>> a = _Line()
+        >>> b = Font("monospace", 20)
+        >>> c = Text("-", b)
+        >>> a.fit_text(deque([c, c, c, c]), 200)
+        >>> (a.width, a.height)
         (48, 24)
 
         """
-        # Record dimensions while still a list
-        # EVENTUALLY: If move sizing outside method, remove method
-        self.width += text_size[0]
-        self.height = max(self.height, text_size[1])
-        self.text_list.append(new_text)
-    
-    def fit_text(self, text_list: List[Text], box_width: int) -> Deque[Text]:
-        """Add text which fits and return the rest."""
-        while text_list:
+        text_x = 0
+        added_text = deque()
+        following_split_sections = deque()
+        while box_text_list:
+            text = box_text_list.popleft()
+            if text.split_sections:
+                split_section = split_sections.pop()
+                split_sections.append(split_section)
+            else:
+                split_section = None
 
-            text = text_list.popLeft()
-            text_width, text_height = text.get_size()
+            text_width, text_height = text.get_size(split_section)
 
             if self.width + text_width <= box_width:
-                self._add_text(text, (text_width, text_height))
+                self.width += text_width
+                self.height = max(self.height, text_height)
+                text_x += text_width
+                self.text_list.append(text)
+                added_text.append(text)
 
+            elif text_width > box_width:
+                split_section = text.split()
+                if not isinstance(split_section, type(None)):
+                    self.split_sections.append(split_section)
+                    following_split_sections.append(split_section + 1)
+
+                    text_width, text_height = text.get_size(split_section)
+
+                    self.width += text_width
+                    self.height = max(self.height, text_height)
+                    text_x += text_width
+                    self.text_list.append(text)
+                    added_text.append(text)
+                    box_text_list.appendleft(text)
+
+                added_text.append(text)
             else:
-                pass  # TODO: Finish
+                box_text_list.appendleft(text)
+                break
+            
+            if text.split_sections:
+                # If this text contains a split section, add section to line
+                assert(split_sections)
+                self.split_sections.append(split_sections.popleft())
+
+        return added_text, following_split_sections
+
+    def render(self, display: pygame.Surface):
+        """Render the line to the display."""
+        text_x = 0
+        for text in self.text_list:
+            text.set_pos((self.pos[0] + text_x, self.pos[1]))
+            text.render(display)
+            text_x += text.get_size()[0]
 
     def __iter__(self):
         """Iterate over the line."""
         for text in self.text_list:
             yield text
-            
 
 
 class _TextWrap():
@@ -274,6 +388,10 @@ class _TextWrap():
         self.unloaded_lines_old = deque()
         self.unloaded_lines_new = deque()
 
+        self.pos = None
+
+        self.new_line_y = 0
+
     def _next_line(self):
         """Get the next line to be filled."""
         if self.lines:
@@ -282,46 +400,22 @@ class _TextWrap():
             line = _Line()
         return line
 
-    def _wrap_new_lines(self, coords: List[int]):
+    def _wrap_new_lines(self):
         """Wrap text into lines."""
-        assert(not isinstance(coords, type(None)))
+        assert(not isinstance(self.pos, type(None)))
 
-        x = coords[0]
-        text_y_pos = coords[1]
-        box_width = coords[2]
-
+        box_width = self.pos[2]
         line = self._next_line()
-
-        line_width = line.width
-
+        split_sections = deque()
         while self.new_text_list:
-            text = self.new_text_list.popleft()
-            text_width, _ = text.get_size()
 
-            # Over width
-            if line_width + text_width > box_width:
-                self.lines.append(line)
-                line = _Line()
-                text_y_pos += self.lines[-1].height
-                line_width = 0
-                self.new_text_list.appendleft(text)
+            added_text, new_split_sections = line.fit_text(
+                self.new_text_list, box_width, split_sections)
+            split_sections.extend(new_split_sections)
 
-                # TODO: Convert to _Line methods to flatten code
-                # TODO: Check if will fit on new line
-                #       If not, split word
-                #       If down to single char, just skip if does not fit
-
-            # Room in line
-            else:
-
-                # Add to line
-                text.set_pos((line_width + x, text_y_pos))
-                line._add_text(text, text.get_size())
-                self.wrapped_text_list.append(text)
-                line_width += text_width
-
-        if line:
+            self.wrapped_text_list.extend(added_text)
             self.lines.append(line)
+            line = _Line()
 
         _mark_dirty()
 
@@ -337,20 +431,24 @@ class _TextWrap():
         """Add text to the current input."""
         self.new_text_list.extend(text_list)
 
-    def render(self, display: pygame.Surface, coords: List[int]):
+    def render(self, display: pygame.Surface, pos: List[int]):
         """Render the lines of text."""
+        self.pos = pos
+
         if not self.lines:
             # No lines have been wrapped
             if self.wrapped_text_list:
                 # Lines available to wrap
-                self._wrap_new_lines(coords)
+                self._wrap_new_lines()
         if self.new_text_list:
             # New lines need wrapped
-            self._wrap_new_lines(coords)
+            self._wrap_new_lines()
 
+        line_y = self.pos[1]
         for line in self.lines:
-            for text in line:
-                text.render(display)
+            line.set_pos((self.pos[0], line_y))
+            line.render(display)
+            line_y += line.height
 
 
 class TextBox:
@@ -371,7 +469,7 @@ class TextBox:
 
         self.text_wrap = _TextWrap()
 
-        self.coords = None
+        self.pos = None
 
         with TEXTBOX_LOCK:
             TEXTBOXES.append(self)
@@ -398,28 +496,28 @@ class TextBox:
 
         """
         # Use pins as percentages to determine corresponding coordinate
-        coords = [
+        pos = [
             self.pins[0] * width,
             self.pins[1] * height
         ]
-        coords.append(self.pins[2] * width - coords[0])
-        coords.append(self.pins[3] * height - coords[1])
+        pos.append(self.pins[2] * width - pos[0])
+        pos.append(self.pins[3] * height - pos[1])
 
-        self.coords = [int(x) for x in coords]
+        self.pos = [int(x) for x in pos]
 
-        return self.coords
+        return self.pos
 
     def _draw_box(self, display: pygame.Surface):
         """Draw the outline of the textbox to the display."""
         width = display.get_width()
         height = display.get_height()
-        coords = self._get_rect(width, height)
-        pygame.draw.rect(display, self.border_color, coords, self.border_width)
+        pos = self._get_rect(width, height)
+        pygame.draw.rect(display, self.border_color, pos, self.border_width)
 
     def render(self, display: pygame.Surface):
         """Draw the textbox to the given display."""
         self._draw_box(display)
-        self.text_wrap.render(display, self.coords)
+        self.text_wrap.render(display, self.pos)
 
 
 class InputBox(TextBox):
