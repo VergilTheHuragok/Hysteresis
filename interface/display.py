@@ -5,12 +5,13 @@
 
 from threading import Lock
 from collections import deque
-from typing import Iterable, List, Tuple, Deque
+from typing import Iterable, List, Tuple, Deque, Dict
 
 import pygame
 
 
 # CLEAN: Determine necessary locations for _mark_dirty()
+# CLEAN: Understand when re-wrapping and re-rendering take place.
 
 # Globals
 running = True
@@ -24,11 +25,15 @@ DEFAULT_BORDER_WIDTH = 1
 DEFAULT_BORDER_COLOR = (255, 255, 255)
 DEFAULT_TEXT_COLOR = (255, 255, 255)
 
-# These must be ordered and do not require fast containment checks
-SPLIT_CHARS_AFTER = [' -.,)>]}']
-SPLIT_CHARS_BEFORE = ['(<[{']
+# TextWrap Constants
+SPLIT_CHARS_AFTER = list(' -.,)>]}')
+SPLIT_CHARS_AFTER_SET = set(SPLIT_CHARS_AFTER)
+
+SPLIT_CHARS_BEFORE = list('(<[{')
+
+# TODO: Customize precedence by creating a new list for SPLIT_CHARS_ALL
 SPLIT_CHARS_ALL = SPLIT_CHARS_AFTER + SPLIT_CHARS_BEFORE
-SPLIT_CHARS_SET = set(SPLIT_CHARS_ALL)
+SPLIT_CHARS_ALL_SET = set(SPLIT_CHARS_ALL)
 
 DIRTY = False
 
@@ -141,9 +146,13 @@ class Font():
 class Text():
     """Store text supporting fonts and colors."""
 
+    ID = 0
+
     def __init__(self, text: str, font: Font, color: Iterable[int] = None,
                  highlight: Iterable[int] = None):
-        self.text = text
+        self.text_segment = text
+        self.all_text = text
+
         self.font = font
         self.color = color
         if isinstance(color, type(None)):
@@ -155,9 +164,21 @@ class Text():
 
         self.split_sections = []  # Need fast indexing
 
+        self.text_ID = Text.ID
+        Text.ID += 1
+
     def set_pos(self, pos: Iterable[int]):
         """Set the Text's pos."""
         self.pos = pos
+
+    def reset_text(self):
+        """Reset the text's text_segment to the original, full string."""
+        self.text_segment = self.all_text
+
+    def set_text_segment(self, text_segment: str or None):
+        """Set the text_segment until .reset_text() is called."""
+        if not isinstance(text_segment, type(None)):
+            self.text_segment = text_segment
 
     def reset_font(self):
         """Reset the text's font to the original based.
@@ -217,54 +238,59 @@ class Text():
         self.font = font_objects[new_font_repr]
         _mark_dirty()
 
-    def split(self) -> int:
+    def split(self, remaining_width: int) -> Tuple[str]:
         """Split at the optimal location.
+
+        Parameters
+        ----------
+        remaining_width
+            The amount of space remaining in which to fit a section of text.
 
         Returns
         -------
-        The index of the created splint_ind in self.split_sections.
+        Tuple[0]
+            A section of text which fits in the remaining width.
+        Tuple[1]
+            The remaining text which must be added to a new line.
+
+        Examples
+        --------
+        >>> a = Font('Courier New', 20)
+        >>> b = Text('aaa-bbbbb', a)
+        >>> b.split(50)
+        ('aaa-', 'bbbbb')
+
+        >>> a = Font('Courier New', 20)
+        >>> b = Text('aaa(bbbbb)', a)
+        >>> b.split(50)
+        ('aaa', '(bbbbb)')
 
         """
+        # TODO: Allow force splitting and adding a hyphen if necessary
         possible_split_points = {}
-        for ind, char in enumerate(self.text):
-            if char in SPLIT_CHARS_SET:
-                # Only take split char closest to end
-                possible_split_points[char] = ind
+        for ind, char in enumerate(self.text_segment):
+            if char in SPLIT_CHARS_ALL_SET:
+                split_ind = ind
+                if char in SPLIT_CHARS_AFTER_SET:
+                    split_ind += 1
+                text_segment = self.text_segment[:split_ind]
+                other_segment = self.text_segment[split_ind:]
+                text_segment_width = self.get_size(text_segment)[0]
+                if text_segment_width <= remaining_width:
+                    possible_split_points[char] = (text_segment, other_segment)
+                else:
+                    break  # Already outside remaining width
 
         if not possible_split_points:
             return None
 
         split_chars_sorted = sorted(possible_split_points.keys(),
                                     key=_split_chars_sort)
-        split_char = split_chars_sorted[0]
-        split_ind = possible_split_points[split_char]
-        self.split_sections.append(split_ind)
-        return len(self.split_sections) - 1
+        best_split_char = split_chars_sorted[0]
 
-    def _get_text_section(self, split_section: int = None):
-        """Get the text which should be rendered for this section."""
-        if self.split_sections:
-            assert(not isinstance(split_section, type(None)))
+        return possible_split_points[best_split_char]
 
-            start = None
-            end = None
-            if split_section == 0:
-                # TODO: Exclusive?
-                end = self.split_sections[0]
-            elif split_section == len(self.split_sections) - 1:
-                start = self.split_sections[-1]
-            else:
-                start = self.split_sections[split_section]
-                end = self.split_sections[split_section + 1]
-
-            text_slice = slice(start, end)
-            text = self.text[text_slice]
-        else:
-            text = self.text
-
-        return text
-
-    def render(self, display: pygame.Surface, split_section: int = None):
+    def render(self, display: pygame.Surface):
         """Render the text to the given display.
 
         Parameters
@@ -273,14 +299,21 @@ class Text():
             If text contains a split, a section number must be provided.
 
         """
-        text = self._get_text_section(split_section)
         font = self.font.get_pygame_font()
-        label = font.render(text, 1, self.color, self.highlight)
+        label = font.render(self.text_segment, 1, self.color, self.highlight)
         display.blit(label, self.pos)
 
-    def get_size(self, split_section: int = None) -> Tuple[int]:
-        """Return the dimensions of the text."""
-        text = self._get_text_section(split_section)
+    def get_size(self, text: str = None) -> Tuple[int]:
+        """Return the dimensions of the text.
+
+        Parameters
+        ----------
+        text
+            text to determine the size of. If None, check self.text.
+
+        """
+        if isinstance(text, type(None)):
+            text = self.text_segment
         return self.font.get_pygame_font().size(text)
 
 
@@ -293,14 +326,14 @@ class _Line():
         self.height = 0
         self.pos = None
 
-        self.split_sections = []
+        self.text_segments = {}
 
     def set_pos(self, pos: Tuple[int]):
         """Set the pos of the _Line."""
         self.pos = pos
 
     def fit_text(self, box_text_list: Deque[Text], box_width: int,
-                 split_sections: Deque[int]) -> Deque[Text]:
+                 previous_text_segments: Dict[int, str]) -> Deque[Text]:
         """Add text which fits and return the rest.
 
         Returns
@@ -317,52 +350,50 @@ class _Line():
         (48, 24)
 
         """
-        text_x = 0
         added_text = deque()
-        following_split_sections = deque()
+        following_split_segments = {}  # IMPORTANT: finish rewriting these methods
+
         while box_text_list:
             text = box_text_list.popleft()
-            if text.split_sections:
-                split_section = split_sections.pop()
-                split_sections.append(split_section)
-            else:
-                split_section = None
 
-            text_width, text_height = text.get_size(split_section)
+            if text.ID in previous_text_segments:
+                text_segment = previous_text_segments[text.ID]
+                del previous_text_segments[text.ID]
+                # Should only be one in segments at a time
+                assert not previous_text_segments
+                self.text_segments[text.ID] = text_segment
+                text.set_text_segment(text_segment)
+
+            text_width, text_height = text.get_size()
 
             if self.width + text_width <= box_width:
                 self.width += text_width
                 self.height = max(self.height, text_height)
-                text_x += text_width
                 self.text_list.append(text)
                 added_text.append(text)
 
             elif text_width > box_width:
-                split_section = text.split()
-                if not isinstance(split_section, type(None)):
-                    self.split_sections.append(split_section)
-                    following_split_sections.append(split_section + 1)
+                remaining_width = box_width - self.width
 
-                    text_width, text_height = text.get_size(split_section)
+                text_segments = text.split(remaining_width)
+                if not isinstance(text_segment, type(None)):
+                    self.text_segments[text.ID] = text_segments[0]
+                    following_text_segments.append(text_segment + 1)
+
+                    text_width, text_height = text.get_size(text_segment)
 
                     self.width += text_width
                     self.height = max(self.height, text_height)
-                    text_x += text_width
                     self.text_list.append(text)
-                    added_text.append(text)
                     box_text_list.appendleft(text)
 
                 added_text.append(text)
+                break
             else:
                 box_text_list.appendleft(text)
                 break
-            
-            if text.split_sections:
-                # If this text contains a split section, add section to line
-                assert(split_sections)
-                self.split_sections.append(split_sections.popleft())
 
-        return added_text, following_split_sections
+        return added_text, following_text_segments
 
     def render(self, display: pygame.Surface):
         """Render the line to the display."""
@@ -402,22 +433,23 @@ class _TextWrap():
 
     def _wrap_new_lines(self):
         """Wrap text into lines."""
-        assert(not isinstance(self.pos, type(None)))
+        if self.new_text_list:
+            assert(not isinstance(self.pos, type(None)))
 
-        box_width = self.pos[2]
-        line = self._next_line()
-        split_sections = deque()
-        while self.new_text_list:
+            box_width = self.pos[2]
+            line = self._next_line()
+            split_sections = deque()
+            while self.new_text_list:
 
-            added_text, new_split_sections = line.fit_text(
-                self.new_text_list, box_width, split_sections)
-            split_sections.extend(new_split_sections)
+                added_text, new_split_sections = line.fit_text(
+                    self.new_text_list, box_width, split_sections)
+                split_sections.extend(new_split_sections)
 
-            self.wrapped_text_list.extend(added_text)
-            self.lines.append(line)
-            line = _Line()
+                self.wrapped_text_list.extend(added_text)
+                self.lines.append(line)
+                line = _Line()
 
-        _mark_dirty()
+            _mark_dirty()
 
     def mark_wrap(self):
         """Set to be re-wrapped."""
@@ -435,14 +467,7 @@ class _TextWrap():
         """Render the lines of text."""
         self.pos = pos
 
-        if not self.lines:
-            # No lines have been wrapped
-            if self.wrapped_text_list:
-                # Lines available to wrap
-                self._wrap_new_lines()
-        if self.new_text_list:
-            # New lines need wrapped
-            self._wrap_new_lines()
+        self._wrap_new_lines()
 
         line_y = self.pos[1]
         for line in self.lines:
