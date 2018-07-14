@@ -267,17 +267,19 @@ class Text():
         # TODO: Allow force splitting and adding a hyphen if necessary
         possible_split_points = {}
         for ind, char in enumerate(self.text_segment):
-            if char in SPLIT_CHARS_ALL_SET:
-                split_ind = ind
-                if char in SPLIT_CHARS_AFTER_SET:
-                    split_ind += 1
-                text_segment = self.text_segment[:split_ind]
-                other_segment = self.text_segment[split_ind:]
-                text_segment_width = self.get_size(text_segment)[0]
-                if text_segment_width <= remaining_width:
-                    possible_split_points[char] = (text_segment, other_segment)
-                else:
-                    break  # Already outside remaining width
+            if ind > 0 and ind < len(self.text_segment) - 1:
+                if char in SPLIT_CHARS_ALL_SET:
+                    split_ind = ind
+                    if char in SPLIT_CHARS_AFTER_SET:
+                        split_ind += 1
+                    text_segment = self.text_segment[:split_ind]
+                    other_segment = self.text_segment[split_ind:]
+                    text_segment_width = self.get_size(text_segment)[0]
+                    if text_segment_width <= remaining_width:
+                        possible_split_points[char] = (text_segment,
+                                                       other_segment)
+                    else:  # OPTIMIZE: Check length every few characters regardless of if split char
+                        break  # Already outside remaining width
 
         if not possible_split_points:
             return None
@@ -285,8 +287,9 @@ class Text():
         split_chars_sorted = sorted(possible_split_points.keys(),
                                     key=_split_chars_sort)
         best_split_char = split_chars_sorted[0]
-
-        return possible_split_points[best_split_char]
+        best_segments = possible_split_points[best_split_char]
+        self.text_segment = best_segments[0]
+        return best_segments
 
     def render(self, display: pygame.Surface):
         """Render the text to the given display.
@@ -312,7 +315,7 @@ class Text():
         """
         if isinstance(text, type(None)):
             text = self.text_segment
-        return self.font.get_pygame_font().size(text)  # IMPORTANT: text occasionally int
+        return self.font.get_pygame_font().size(text)
 
 
 class _Line():
@@ -330,9 +333,17 @@ class _Line():
         """Set the pos of the _Line."""
         self.pos = pos
 
-    def fit_text(self, box_text_list: Deque[Text], box_width: int,) \
+    def fit_text(self, box_text_list: Deque[Text], box_width: int) \
             -> Tuple[Deque[Text], Tuple[int, str]]:
         """Add text which fits and return the rest.
+
+        Parameters
+        ----------
+        box_text_list
+            The list of text contained by the line's parent box.
+            List of text to be wrapped.
+        box_width
+            The width of the textbox to which the line belongs.
 
         Returns
         -------
@@ -346,7 +357,7 @@ class _Line():
         >>> a = _Line()
         >>> b = Font("monospace", 20)
         >>> c = Text("-", b)
-        >>> a.fit_text(deque([c, c, c, c]), 200)
+        >>> d = a.fit_text(deque([c, c, c, c]), 200)
         >>> (a.width, a.height)
         (48, 24)
 
@@ -359,9 +370,6 @@ class _Line():
 
             if text.ID in self.text_segments:
                 text_segment = self.text_segments[text.ID]
-                del self.text_segments[text.ID]
-                # Should only be one in segments at a time
-                assert not self.text_segments
                 text.set_text_segment(text_segment)
 
             text_width, text_height = text.get_size()
@@ -434,7 +442,8 @@ class _TextWrap():
             line = _Line()
         return line
 
-    def _wrap_new_lines(self):
+    def _wrap_new_lines(self):  # BUG: Some text being lost on Rewrap
+        # NOTE: Missing text is a result of not having yet implemented force splitting and is expected behavior 
         """Wrap text into lines."""
         if self.new_text_list:
             assert(not isinstance(self.pos, type(None)))
@@ -442,10 +451,12 @@ class _TextWrap():
             box_width = self.pos[2]
             line = self._next_line()
 
-            while self.new_text_list:
+            new_text_segment = None
+            while self.new_text_list or new_text_segment:
+                # Check new_text_segment to ensure the last line is appended
 
                 added_text, new_text_segment = line.fit_text(
-                    self.new_text_list, box_width, )
+                    self.new_text_list, box_width)
 
                 self.wrapped_text_list.extend(added_text)
                 self.lines.append(line)
@@ -453,23 +464,29 @@ class _TextWrap():
 
                 if new_text_segment:
                     ID = new_text_segment[0]
-                    text_segment = new_text_segment[0]
+                    text_segment = new_text_segment[1]
                     line.text_segments[ID] = text_segment
 
             _mark_dirty()
 
     def _purge_segments(self):
-        """Clear all string segments stored in Text due to splitting."""
-        for line in self.lines:
-            for text in line:
+        """Clear split segments."""
+        used_text_ids = set()
+        checked_text_list = deque()
+        while self.wrapped_text_list:
+            text = self.wrapped_text_list.pop()
+            if text.ID not in used_text_ids:
+                checked_text_list.appendleft(text)
+                used_text_ids.add(text.ID)
                 text.reset_text()
+        self.wrapped_text_list = checked_text_list
 
     def mark_wrap(self):
         """Set to be re-wrapped."""
         self.lines.clear()
         # Move old lines back into
-        self.wrapped_text_list.reverse()
         self._purge_segments()
+        self.wrapped_text_list.reverse()
         self.new_text_list.extendleft(self.wrapped_text_list)
         self.wrapped_text_list.clear()
 
