@@ -18,7 +18,6 @@ for i in range(0, 100):
     x.text_wrap.add_text([Text(str(i) + ', ', font1, (255, 255, 255))])
 
 y.text_wrap.add_text([Text(''.join(random.choice(string.printable) for i in range(0, 100)), font1, highlight=(255, 0, 255))])
-# IMPORTANT: Finish getting split sections to work. Probably rewrite.
     
 while interface.start.get_running():
     sleep(.01)
