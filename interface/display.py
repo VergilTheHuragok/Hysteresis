@@ -231,6 +231,18 @@ class Text():
         self.font = font_objects[new_font_repr]
         _mark_dirty()
 
+    def force_split(self, remaining_width: int) -> Tuple[str]:
+        """Split at the optimal location.
+
+        Parameters
+        ----------
+        remaining_width
+            The amount of space remaining in which to fit a section of text.
+
+        """
+        for char in self.text_segment:
+            pass
+
     def split(self, remaining_width: int) -> Tuple[str]:
         """Split at the optimal location.
 
@@ -259,7 +271,6 @@ class Text():
         ('aaa', '(bbbbb)')
 
         """
-        # TODO: Allow force splitting and adding a hyphen if necessary
         possible_split_points = {}
         for ind, char in enumerate(self.text_segment):
             if ind > 0 and ind < len(self.text_segment) - 1:
@@ -277,7 +288,7 @@ class Text():
                         break  # Already outside remaining width
 
         if not possible_split_points:
-            return None
+            return self.force_split(remaining_width)
 
         split_chars_sorted = sorted(possible_split_points.keys(),
                                     key=_split_chars_sort)
