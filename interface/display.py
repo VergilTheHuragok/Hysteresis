@@ -146,8 +146,6 @@ class Font():
 class Text():
     """Store text supporting fonts and colors."""
 
-    ID = 0
-
     def __init__(self, text: str, font: Font, color: Iterable[int] = None,
                  highlight: Iterable[int] = None):
         self.text_segment = text
@@ -161,9 +159,6 @@ class Text():
 
         self.original_font_repr = repr(self.font)
         self.pos = None
-
-        self.text_ID = Text.ID
-        Text.ID += 1
 
     def set_pos(self, pos: Iterable[int]):
         """Set the Text's pos."""
@@ -367,9 +362,10 @@ class _Line():
 
         while box_text_list:
             text = box_text_list.popleft()
+            text_id = id(text)
 
-            if text.ID in self.text_segments:
-                text_segment = self.text_segments[text.ID]
+            if text_id in self.text_segments:
+                text_segment = self.text_segments[text_id]
                 text.set_text_segment(text_segment)
 
             text_width, text_height = text.get_size()
@@ -380,13 +376,13 @@ class _Line():
                 self.text_list.append(text)
                 added_text.append(text)
 
-            elif text_width > box_width:
+            else:  # text_width > box_width:
                 remaining_width = box_width - self.width
 
                 text_segments = text.split(remaining_width)
                 if not isinstance(text_segments, type(None)):
-                    self.text_segments[text.ID] = text_segments[0]
-                    following_text_segment = (text.ID, text_segments[1])
+                    self.text_segments[text_id] = text_segments[0]
+                    following_text_segment = (text_id, text_segments[1])
 
                     text_width, text_height = text.get_size()
 
@@ -394,12 +390,14 @@ class _Line():
                     self.height = max(self.height, text_height)
                     self.text_list.append(text)
                     box_text_list.appendleft(text)
+                else:
+                    pass  # TODO: Force split
 
                 added_text.append(text)
                 break
-            else:
-                box_text_list.appendleft(text)
-                break
+            # else:
+            #     box_text_list.appendleft(text)
+            #     break
 
         return added_text, following_text_segment
 
@@ -407,8 +405,9 @@ class _Line():
         """Render the line to the display."""
         text_x = 0
         for text in self.text_list:
-            if text.ID in self.text_segments:
-                text_segment = self.text_segments[text.ID]
+            text_id = id(text)
+            if text_id in self.text_segments:
+                text_segment = self.text_segments[text_id]
                 text.set_text_segment(text_segment)
             text.set_pos((self.pos[0] + text_x, self.pos[1]))
             text.render(display)
@@ -463,9 +462,9 @@ class _TextWrap():
                 line = _Line()
 
                 if new_text_segment:
-                    ID = new_text_segment[0]
+                    text_id = new_text_segment[0]
                     text_segment = new_text_segment[1]
-                    line.text_segments[ID] = text_segment
+                    line.text_segments[text_id] = text_segment
 
             _mark_dirty()
 
@@ -475,9 +474,10 @@ class _TextWrap():
         checked_text_list = deque()
         while self.wrapped_text_list:
             text = self.wrapped_text_list.pop()
-            if text.ID not in used_text_ids:
+            text_id = id(text)
+            if text_id not in used_text_ids:
                 checked_text_list.appendleft(text)
-                used_text_ids.add(text.ID)
+                used_text_ids.add(text_id)
                 text.reset_text()
         self.wrapped_text_list = checked_text_list
 
