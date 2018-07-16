@@ -3,15 +3,13 @@
 # NOTE: No defaults should be allowed in this module.
 # Defaults are handled higher-up
 
+from __future__ import annotations
 from threading import Lock
 from collections import deque
 from typing import Iterable, List, Tuple, Deque, Dict
 
 import pygame
 
-
-# CLEAN: Determine necessary locations for _mark_dirty()
-# CLEAN: Understand when re-wrapping and re-rendering take place.
 
 # Globals
 running = True
@@ -26,12 +24,12 @@ DEFAULT_BORDER_COLOR = (255, 255, 255)
 DEFAULT_TEXT_COLOR = (255, 255, 255)
 
 # TextWrap Constants
-SPLIT_CHARS_AFTER = list(' -.,)>]}')
+# N = new text object
+SPLIT_CHARS_AFTER = list(' -.,!?;/\\)>]}+*&^%`')
 SPLIT_CHARS_AFTER_SET = set(SPLIT_CHARS_AFTER)
 
-SPLIT_CHARS_BEFORE = list('(<[{')
+SPLIT_CHARS_BEFORE = list('(<[{_$#@|~N')
 
-# TODO: Customize precedence by creating a new list for SPLIT_CHARS_ALL
 SPLIT_CHARS_ALL = SPLIT_CHARS_AFTER + SPLIT_CHARS_BEFORE
 SPLIT_CHARS_ALL_SET = set(SPLIT_CHARS_ALL)
 
@@ -127,6 +125,41 @@ class Font():
             self._create_pygame_font()
         return self.pygame_font
 
+    def edit(self, font_name: str = None, size: int = None,
+                  bold: bool = None, italic: bool = None) -> Font:
+        """Create a new font based off this one.
+
+        Examples
+        --------
+        >>> _ = pygame.init()
+        >>> a = Font('courier new', 17)
+        >>> a
+        Font(font_name='courier new', size=17, bold=False, italic=False)
+        >>> b = a.edit(size=20, italic=True)
+        >>> a
+        Font(font_name='courier new', size=17, bold=False, italic=False)
+        >>> b
+        Font(font_name='courier new', size=20, bold=False, italic=True)
+
+        """
+        global font_objects
+        # Get either old or changed values
+        new_font_name = self.font_name if isinstance(
+            font_name, type(None)) else font_name
+        new_size = self.size if isinstance(size, type(None)) else size
+        new_bold = self.bold if isinstance(bold, type(None)) else bold
+        new_italic = self.italic if isinstance(
+            italic, type(None)) else italic
+
+        # Check if font already exists
+        new_font_repr = get_font_repr(
+            new_font_name, new_size, new_bold, new_italic)
+        if new_font_repr not in font_objects:
+            new_font = Font(new_font_name, new_size, new_bold, new_italic)
+            with FONT_LOCK:
+                font_objects[new_font_repr] = new_font
+        return font_objects[new_font_repr]
+
     def __repr__(self) -> str:
         """Return a string representation of the font object."""
         return get_font_repr(self.font_name, self.size, self.bold, self.italic)
@@ -147,7 +180,7 @@ class Text():
     """Store text supporting fonts and colors."""
 
     def __init__(self, text: str, font: Font, color: Iterable[int] = None,
-                 highlight: Iterable[int] = None):
+                 highlight: Iterable[int] = None, new_line: bool = False):
         self.text_segment = text
         self.all_text = text
 
@@ -156,6 +189,8 @@ class Text():
         if isinstance(color, type(None)):
             self.color = DEFAULT_TEXT_COLOR
         self.highlight = highlight
+
+        self.new_line = new_line
 
         self.original_font_repr = repr(self.font)
         self.pos = None
@@ -182,7 +217,7 @@ class Text():
         >>> a = Text("test", Font("courier new", 17))
         >>> a.font
         Font(font_name='courier new', size=17, bold=False, italic=False)
-        >>> a.edit_font(size=20, italic=True)
+        >>> a.set_font(a.font.edit(size=20, italic=True))
         >>> a.font
         Font(font_name='courier new', size=20, bold=False, italic=True)
         >>> a.reset_font()
@@ -198,58 +233,55 @@ class Text():
         self.font = font
         _mark_dirty()
 
-    def edit_font(self, font_name: str = None, size: int = None,
-                  bold: bool = None, italic: bool = None):
-        """Alter the font of the text.
+    def _force_split(self, remaining_width: int, box_width: int) -> Tuple[str]:
+        """Split at the location closest to the box border.
 
-        Examples
-        --------
-        >>> _ = pygame.init()
-        >>> a = Text("test", Font('courier new', 17))
-        >>> a.font
-        Font(font_name='courier new', size=17, bold=False, italic=False)
-        >>> a.edit_font(size=20, italic=True)
-        >>> a.font
-        Font(font_name='courier new', size=20, bold=False, italic=True)
+        Parameters
+        ----------
+        remaining_width
+            The amount of space remaining in which to fit a section of text.
+        box_width
+            The max width for a line.
+
+        Returns
+        -------
+        Tuple[0]
+            A section of text which fits in the remaining width.
+        Tuple[1]
+            The remaining text which must be added to a new line.
 
         """
-        global font_objects
-        # Get either old or changed values
-        new_font_name = self.font.font_name if isinstance(
-            font_name, type(None)) else font_name
-        new_size = self.font.size if isinstance(size, type(None)) else size
-        new_bold = self.font.bold if isinstance(bold, type(None)) else bold
-        new_italic = self.font.italic if isinstance(
-            italic, type(None)) else italic
+        best_ind = None
+        for ind in range(0, len(self.text_segment)):
+            segment = self.text_segment[:ind + 1]
+            segment_width = self.get_size(segment)[0]
+            if ind > 0:
+                best_ind = ind - 1
+            if segment_width > remaining_width:
+                if ind == 0 and remaining_width == box_width:
+                    # Single char does not fit on a line to itself
+                    self.text_segment = ''
+                break
 
-        # Check if font already exists
-        new_font_repr = get_font_repr(
-            new_font_name, new_size, new_bold, new_italic)
-        if new_font_repr not in font_objects:
-            new_font = Font(new_font_name, new_size, new_bold, new_italic)
-            font_objects[new_font_repr] = new_font
-        self.font = font_objects[new_font_repr]
-        _mark_dirty()
+        if isinstance(best_ind, type(None)):
+            # Nothing fits on this line, put all on next
+            best_segment = ''
+            other_segment = self.text_segment
+        else:
+            best_segment = self.text_segment[:best_ind + 1]
+            other_segment = self.text_segment[best_ind + 1:]
+        self.text_segment = best_segment
+        return (best_segment, other_segment)
 
-    def force_split(self, remaining_width: int) -> Tuple[str]:
+    def split(self, remaining_width: int, box_width: int) -> Tuple[str]:
         """Split at the optimal location.
 
         Parameters
         ----------
         remaining_width
             The amount of space remaining in which to fit a section of text.
-
-        """
-        for char in self.text_segment:
-            pass
-
-    def split(self, remaining_width: int) -> Tuple[str]:
-        """Split at the optimal location.
-
-        Parameters
-        ----------
-        remaining_width
-            The amount of space remaining in which to fit a section of text.
+        box_width
+            The max width for a line.
 
         Returns
         -------
@@ -262,40 +294,42 @@ class Text():
         --------
         >>> a = Font('Courier New', 20)
         >>> b = Text('aaa-bbbbb', a)
-        >>> b.split(50)
+        >>> b.split(50, 50)
         ('aaa-', 'bbbbb')
 
         >>> a = Font('Courier New', 20)
         >>> b = Text('aaa(bbbbb)', a)
-        >>> b.split(50)
+        >>> b.split(50, 50)
         ('aaa', '(bbbbb)')
 
         """
         possible_split_points = {}
+        if remaining_width < box_width:
+            possible_split_points['N'] = ('', self.text_segment)
         for ind, char in enumerate(self.text_segment):
-            if ind > 0 and ind < len(self.text_segment) - 1:
-                if char in SPLIT_CHARS_ALL_SET:
-                    split_ind = ind
-                    if char in SPLIT_CHARS_AFTER_SET:
-                        split_ind += 1
-                    text_segment = self.text_segment[:split_ind]
-                    other_segment = self.text_segment[split_ind:]
-                    text_segment_width = self.get_size(text_segment)[0]
-                    if text_segment_width <= remaining_width:
-                        possible_split_points[char] = (text_segment,
-                                                       other_segment)
-                    else:  # OPTIMIZE: Check length every few characters regardless of if split char
-                        break  # Already outside remaining width
+            if char in SPLIT_CHARS_ALL_SET:
+                split_ind = ind
+                if char in SPLIT_CHARS_AFTER_SET:
+                    split_ind += 1
+                elif ind == 0 and remaining_width == box_width:
+                    # Cannot split before first char on a new_line
+                    continue
+                text_segment = self.text_segment[:split_ind]
+                other_segment = self.text_segment[split_ind:]
+                text_segment_width = self.get_size(text_segment)[0]
+                if text_segment_width <= remaining_width:
+                    possible_split_points[char] = (text_segment, other_segment)
+                else:  # OPTIMIZE: Check length every few characters regardless of if split char
+                    break  # Already outside remaining width
 
-        if not possible_split_points:
-            return self.force_split(remaining_width)
-
-        split_chars_sorted = sorted(possible_split_points.keys(),
-                                    key=_split_chars_sort)
-        best_split_char = split_chars_sorted[0]
-        best_segments = possible_split_points[best_split_char]
-        self.text_segment = best_segments[0]
-        return best_segments
+        if possible_split_points:
+            split_chars_sorted = sorted(possible_split_points.keys(),
+                                        key=_split_chars_sort)
+            best_split_char = split_chars_sorted[0]
+            best_segments = possible_split_points[best_split_char]
+            self.text_segment = best_segments[0]
+            return best_segments
+        return self._force_split(remaining_width, box_width)
 
     def render(self, display: pygame.Surface):
         """Render the text to the given display.
@@ -335,6 +369,8 @@ class _Line():
 
         self.text_segments = {}
 
+        self.new_line = False
+
     def set_pos(self, pos: Tuple[int]):
         """Set the pos of the _Line."""
         self.pos = pos
@@ -371,7 +407,7 @@ class _Line():
         added_text = deque()
         following_text_segment = ()
 
-        while box_text_list:
+        while box_text_list and not self.new_line:
             text = box_text_list.popleft()
             text_id = id(text)
 
@@ -386,29 +422,27 @@ class _Line():
                 self.height = max(self.height, text_height)
                 self.text_list.append(text)
                 added_text.append(text)
+                if text.new_line:
+                    self.new_line = True
+                    break
 
-            else:  # text_width > box_width:
+            else:
                 remaining_width = box_width - self.width
 
-                text_segments = text.split(remaining_width)
-                if not isinstance(text_segments, type(None)):
+                text_segments = text.split(remaining_width, box_width)
+                if text_segments[0]:
                     self.text_segments[text_id] = text_segments[0]
-                    following_text_segment = (text_id, text_segments[1])
 
                     text_width, text_height = text.get_size()
 
                     self.width += text_width
                     self.height = max(self.height, text_height)
                     self.text_list.append(text)
+                if text_segments[1]:
+                    following_text_segment = (text_id, text_segments[1])
                     box_text_list.appendleft(text)
-                else:
-                    pass  # TODO: Force split
-
                 added_text.append(text)
                 break
-            # else:
-            #     box_text_list.appendleft(text)
-            #     break
 
         return added_text, following_text_segment
 
@@ -444,6 +478,8 @@ class _TextWrap():
 
         self.new_line_y = 0
 
+        self.text_lock = Lock()
+
     def _next_line(self):
         """Get the next line to be filled."""
         if self.lines:
@@ -452,9 +488,8 @@ class _TextWrap():
             line = _Line()
         return line
 
-    def _wrap_new_lines(self):  # BUG: Some text being lost on Rewrap
-        # NOTE: Missing text is a result of not having yet implemented force splitting and is expected behavior 
-        """Wrap text into lines."""
+    def _wrap_new_lines(self):
+        """Wrap text into lines.""" 
         if self.new_text_list:
             assert(not isinstance(self.pos, type(None)))
 
@@ -463,7 +498,7 @@ class _TextWrap():
 
             new_text_segment = None
             while self.new_text_list or new_text_segment:
-                # Check new_text_segment to ensure the last line is appended
+                # Check new_text_segment to ensure the last line appended
 
                 added_text, new_text_segment = line.fit_text(
                     self.new_text_list, box_width)
@@ -494,28 +529,42 @@ class _TextWrap():
 
     def mark_wrap(self):
         """Set to be re-wrapped."""
-        self.lines.clear()
-        # Move old lines back into
-        self._purge_segments()
-        self.wrapped_text_list.reverse()
-        self.new_text_list.extendleft(self.wrapped_text_list)
-        self.wrapped_text_list.clear()
+        with self.text_lock:
+            self.lines.clear()
+            # Move old lines back into
+            self._purge_segments()
+            self.wrapped_text_list.reverse()
+            self.new_text_list.extendleft(self.wrapped_text_list)
+            self.wrapped_text_list.clear()
 
     def add_text(self, text_list: Iterable[Text]):
         """Add text to the current input."""
-        self.new_text_list.extend(text_list)
+        with self.text_lock:
+            self.new_text_list.extend(text_list)
+
+    def clear_all_text(self):
+        """Clear all text that has been added to the box."""
+        with self.text_lock:
+            self.lines.clear()
+            self.wrapped_text_list.clear()
+            self.new_text_list.clear()
+            self.unloaded_lines_old.clear()
+            self.unloaded_lines_new.clear()
+        _rewrap()
+        _mark_dirty()
 
     def render(self, display: pygame.Surface, pos: List[int]):
         """Render the lines of text."""
-        self.pos = pos
+        with self.text_lock:
+            self.pos = pos
 
-        self._wrap_new_lines()
+            self._wrap_new_lines()
 
-        line_y = self.pos[1]
-        for line in self.lines:
-            line.set_pos((self.pos[0], line_y))
-            line.render(display)
-            line_y += line.height
+            line_y = self.pos[1]
+            for line in self.lines:
+                line.set_pos((self.pos[0], line_y))
+                line.render(display)
+                line_y += line.height
 
 
 class TextBox:

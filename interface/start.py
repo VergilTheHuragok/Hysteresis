@@ -22,7 +22,7 @@ def _interface_loop():
 
     while running:
         # Render display
-        render(display)
+        render(display, (0, 0, 0))
 
         # Handle events
         events = pygame.event.get()
