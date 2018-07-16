@@ -8,6 +8,13 @@ from typing import Deque, Dict, Iterable, List, Tuple
 
 import pygame
 
+# TODO: When scrolling should save lines out of screen or just rewrap?
+#       Probably should save lines to be safe. Obviously clear on rewrap.
+#       Lines should remain in self.lines until case below
+#       Lines outside buffer range are decomposed back into text objects and
+#           placed in separate deque so that rewrapping is not necessary
+#           unless scrolling that far back.
+#       Allow wrapping from new to old. Should be default?
 # Globals
 running = True
 
@@ -262,7 +269,7 @@ class Text:
         """
         best_ind = None
         for ind in range(0, len(self.text_segment)):
-            segment = self.text_segment[: ind + 1]
+            segment = self.text_segment[: ind + 1] + "-"
             segment_width = self.get_size(segment)[0]
             if ind > 0:
                 best_ind = ind - 1
@@ -277,7 +284,7 @@ class Text:
             best_segment = ""
             other_segment = self.text_segment
         else:
-            best_segment = self.text_segment[: best_ind + 1]
+            best_segment = self.text_segment[: best_ind + 1] + "-"
             other_segment = self.text_segment[best_ind + 1 :]
         self.text_segment = best_segment
         return (best_segment, other_segment)
@@ -482,8 +489,8 @@ class _TextWrap:
         self.wrapped_text_list = deque()
         self.new_text_list = deque()
         self.lines = deque()
-        self.unloaded_lines_old = deque()
-        self.unloaded_lines_new = deque()
+        self.unloaded_text_old = deque()
+        self.unloaded_text_new = deque()
 
         self.pos = None
 
@@ -508,15 +515,22 @@ class _TextWrap:
             line = self._next_line()
 
             new_text_segment = None
+            wrapped_height = 0
             while self.new_text_list or new_text_segment:
                 # Check new_text_segment to ensure the last line appended
 
                 added_text, new_text_segment = line.fit_text(
                     self.new_text_list, box_width
                 )
-
+                wrapped_height += line.height
+                if wrapped_height > self.pos[3]:
+                    # TODO: Place into unloaded_text_new instead, maybe
+                    # BUG: Still wraps outside screen in brute.
+                    self.new_text_list.extend(added_text)
+                    break
                 self.wrapped_text_list.extend(added_text)
                 self.lines.append(line)
+
                 line = _Line()
 
                 if new_text_segment:
@@ -560,8 +574,8 @@ class _TextWrap:
             self.lines.clear()
             self.wrapped_text_list.clear()
             self.new_text_list.clear()
-            self.unloaded_lines_old.clear()
-            self.unloaded_lines_new.clear()
+            self.unloaded_text_old.clear()
+            self.unloaded_text_new.clear()
         _rewrap()
         _mark_dirty()
 
