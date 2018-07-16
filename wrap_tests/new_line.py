@@ -24,14 +24,14 @@ The broad narrative of Hitchhiker follows the misadventures of the last survivin
 x = TextBox([.1, .1, .45, .9])
 y = TextBox([.55, .1, .9, .9])
 
-string = ''
+string = ""
 for i, char in enumerate(text):
     string += char
     if not i % 40 or i == len(text) - 1:
         color = tuple(random.randint(0, 255) for _ in range(0, 3))
         x.text_wrap.add_text([Text(string, font1, highlight=color, new_line=True)])
         y.text_wrap.add_text([Text(string, font1, highlight=color)])
-        string = ''
+        string = ""
 
 while interface.start.get_running():
     sleep(.01)

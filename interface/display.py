@@ -1,15 +1,12 @@
 """Write to the display and create textboxes."""
 
-# NOTE: No defaults should be allowed in this module.
-# Defaults are handled higher-up
-
 from __future__ import annotations
-from threading import Lock
+
 from collections import deque
-from typing import Iterable, List, Tuple, Deque, Dict
+from threading import Lock
+from typing import Deque, Dict, Iterable, List, Tuple
 
 import pygame
-
 
 # Globals
 running = True
@@ -25,10 +22,10 @@ DEFAULT_TEXT_COLOR = (255, 255, 255)
 
 # TextWrap Constants
 # N = new text object
-SPLIT_CHARS_AFTER = list(' -.,!?;/\\)>]}+*&^%`')
+SPLIT_CHARS_AFTER = list(" -.,!?;/\\)>]}+*&^%`")
 SPLIT_CHARS_AFTER_SET = set(SPLIT_CHARS_AFTER)
 
-SPLIT_CHARS_BEFORE = list('(<[{_$#@|~N')
+SPLIT_CHARS_BEFORE = list("(<[{_$#@|~N")
 
 SPLIT_CHARS_ALL = SPLIT_CHARS_AFTER + SPLIT_CHARS_BEFORE
 SPLIT_CHARS_ALL_SET = set(SPLIT_CHARS_ALL)
@@ -77,8 +74,9 @@ def _resize_display(size: Iterable[int]) -> pygame.Surface:
     return pygame.display.set_mode(size, pygame.VIDEORESIZE)
 
 
-def check_events(display: pygame.Surface,
-                 events: Iterable[pygame.event.Event]) -> pygame.Surface:
+def check_events(
+    display: pygame.Surface, events: Iterable[pygame.event.Event]
+) -> pygame.Surface:
     """Check pygame display events and execute accordingly."""
     global running
 
@@ -86,22 +84,22 @@ def check_events(display: pygame.Surface,
         if event.type == pygame.QUIT:
             running = False
         elif event.type == pygame.VIDEORESIZE:
-            display = _resize_display(event.dict['size'])
+            display = _resize_display(event.dict["size"])
 
     return display
 
 
 def get_font_repr(font_name: str, size: int, bold: bool, italic: bool):
     """Return a string representation of the font object."""
-    return (f'Font(font_name=\'{font_name}\', size={size}, bold={bold}, '
-            f'italic={italic})')
+    return f"Font(font_name='{font_name}', size={size}, bold={bold}, italic={italic})"
 
 
-class Font():
+class Font:
     """Store all values relating to the display of Text."""
 
-    def __init__(self, font_name: str, size: int, bold: bool = False,
-                 italic: bool = False):
+    def __init__(
+        self, font_name: str, size: int, bold: bool = False, italic: bool = False
+    ):
 
         self.font_name = font_name
         self.size = size
@@ -117,7 +115,8 @@ class Font():
     def _create_pygame_font(self):
         """Create the pygame Font for blitting to Surfaces."""
         self.pygame_font = pygame.font.SysFont(
-            self.font_name, self.size, self.bold, self.italic)
+            self.font_name, self.size, self.bold, self.italic
+        )
 
     def get_pygame_font(self) -> pygame.font.Font:
         """Return a memoized pygame font created from the font."""
@@ -125,8 +124,13 @@ class Font():
             self._create_pygame_font()
         return self.pygame_font
 
-    def edit(self, font_name: str = None, size: int = None,
-                  bold: bool = None, italic: bool = None) -> Font:
+    def edit(
+        self,
+        font_name: str = None,
+        size: int = None,
+        bold: bool = None,
+        italic: bool = None,
+    ) -> Font:
         """Create a new font based off this one.
 
         Examples
@@ -144,16 +148,15 @@ class Font():
         """
         global font_objects
         # Get either old or changed values
-        new_font_name = self.font_name if isinstance(
-            font_name, type(None)) else font_name
+        new_font_name = (
+            self.font_name if isinstance(font_name, type(None)) else font_name
+        )
         new_size = self.size if isinstance(size, type(None)) else size
         new_bold = self.bold if isinstance(bold, type(None)) else bold
-        new_italic = self.italic if isinstance(
-            italic, type(None)) else italic
+        new_italic = self.italic if isinstance(italic, type(None)) else italic
 
         # Check if font already exists
-        new_font_repr = get_font_repr(
-            new_font_name, new_size, new_bold, new_italic)
+        new_font_repr = get_font_repr(new_font_name, new_size, new_bold, new_italic)
         if new_font_repr not in font_objects:
             new_font = Font(new_font_name, new_size, new_bold, new_italic)
             with FONT_LOCK:
@@ -176,11 +179,17 @@ class Font():
             return False
 
 
-class Text():
+class Text:
     """Store text supporting fonts and colors."""
 
-    def __init__(self, text: str, font: Font, color: Iterable[int] = None,
-                 highlight: Iterable[int] = None, new_line: bool = False):
+    def __init__(
+        self,
+        text: str,
+        font: Font,
+        color: Iterable[int] = None,
+        highlight: Iterable[int] = None,
+        new_line: bool = False,
+    ):
         self.text_segment = text
         self.all_text = text
 
@@ -253,23 +262,23 @@ class Text():
         """
         best_ind = None
         for ind in range(0, len(self.text_segment)):
-            segment = self.text_segment[:ind + 1]
+            segment = self.text_segment[: ind + 1]
             segment_width = self.get_size(segment)[0]
             if ind > 0:
                 best_ind = ind - 1
             if segment_width > remaining_width:
                 if ind == 0 and remaining_width == box_width:
                     # Single char does not fit on a line to itself
-                    self.text_segment = ''
+                    self.text_segment = ""
                 break
 
         if isinstance(best_ind, type(None)):
             # Nothing fits on this line, put all on next
-            best_segment = ''
+            best_segment = ""
             other_segment = self.text_segment
         else:
-            best_segment = self.text_segment[:best_ind + 1]
-            other_segment = self.text_segment[best_ind + 1:]
+            best_segment = self.text_segment[: best_ind + 1]
+            other_segment = self.text_segment[best_ind + 1 :]
         self.text_segment = best_segment
         return (best_segment, other_segment)
 
@@ -305,7 +314,7 @@ class Text():
         """
         possible_split_points = {}
         if remaining_width < box_width:
-            possible_split_points['N'] = ('', self.text_segment)
+            possible_split_points["N"] = ("", self.text_segment)
         for ind, char in enumerate(self.text_segment):
             if char in SPLIT_CHARS_ALL_SET:
                 split_ind = ind
@@ -323,8 +332,9 @@ class Text():
                     break  # Already outside remaining width
 
         if possible_split_points:
-            split_chars_sorted = sorted(possible_split_points.keys(),
-                                        key=_split_chars_sort)
+            split_chars_sorted = sorted(
+                possible_split_points.keys(), key=_split_chars_sort
+            )
             best_split_char = split_chars_sorted[0]
             best_segments = possible_split_points[best_split_char]
             self.text_segment = best_segments[0]
@@ -358,7 +368,7 @@ class Text():
         return self.font.get_pygame_font().size(text)
 
 
-class _Line():
+class _Line:
     """Store text in a line."""
 
     def __init__(self):
@@ -375,8 +385,9 @@ class _Line():
         """Set the pos of the _Line."""
         self.pos = pos
 
-    def fit_text(self, box_text_list: Deque[Text], box_width: int) \
-            -> Tuple[Deque[Text], Tuple[int, str]]:
+    def fit_text(
+        self, box_text_list: Deque[Text], box_width: int
+    ) -> Tuple[Deque[Text], Tuple[int, str]]:
         """Add text which fits and return the rest.
 
         Parameters
@@ -464,7 +475,7 @@ class _Line():
             yield text
 
 
-class _TextWrap():
+class _TextWrap:
     """Store wrapped text and handle wrapping."""
 
     def __init__(self):
@@ -489,9 +500,9 @@ class _TextWrap():
         return line
 
     def _wrap_new_lines(self):
-        """Wrap text into lines.""" 
+        """Wrap text into lines."""
         if self.new_text_list:
-            assert(not isinstance(self.pos, type(None)))
+            assert not isinstance(self.pos, type(None))
 
             box_width = self.pos[2]
             line = self._next_line()
@@ -501,7 +512,8 @@ class _TextWrap():
                 # Check new_text_segment to ensure the last line appended
 
                 added_text, new_text_segment = line.fit_text(
-                    self.new_text_list, box_width)
+                    self.new_text_list, box_width
+                )
 
                 self.wrapped_text_list.extend(added_text)
                 self.lines.append(line)
@@ -612,10 +624,7 @@ class TextBox:
 
         """
         # Use pins as percentages to determine corresponding coordinate
-        pos = [
-            self.pins[0] * width,
-            self.pins[1] * height
-        ]
+        pos = [self.pins[0] * width, self.pins[1] * height]
         pos.append(self.pins[2] * width - pos[0])
         pos.append(self.pins[3] * height - pos[1])
 
@@ -646,4 +655,5 @@ class InputBox(TextBox):
 
 if __name__ == "__main__":
     import doctest
+
     doctest.testmod()

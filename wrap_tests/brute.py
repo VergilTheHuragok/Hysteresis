@@ -20,10 +20,15 @@ y = TextBox([.55, .1, .9, .9])
 while interface.start.get_running():
     for i in range(0, random.randint(1, 15)):
         color = tuple(random.randint(0, 255) for _ in range(0, 3))
-        text = (''.join(random.choice(string.printable) for i in range(0, random.randint(1, 100)))).replace("\n", '')
-        
+        text = (
+            "".join(
+                random.choice(string.printable)
+                for i in range(0, random.randint(1, 100))
+            )
+        ).replace("\n", "")
+
         x_text_list = []
-        font2 = font1.edit(size=random.randint(1, 100))
+        font2 = font1.edit(size=random.randint(1, 50))
         for char in text:
             text_object = Text(char, font1, highlight=color)
             text_object.set_font(font2)
