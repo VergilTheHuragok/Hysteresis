@@ -516,6 +516,7 @@ class _TextWrap:
 
             new_text_segment = None
             wrapped_height = 0
+
             while self.new_text_list or new_text_segment:
                 # Check new_text_segment to ensure the last line appended
 
@@ -526,7 +527,9 @@ class _TextWrap:
                 if wrapped_height > self.pos[3]:
                     # TODO: Place into unloaded_text_new instead, maybe
                     # BUG: Still wraps outside screen in brute.
-                    self.new_text_list.extend(added_text)
+                    added_text.pop()
+                    added_text.reverse()
+                    self.new_text_list.extendleft(added_text)
                     break
                 self.wrapped_text_list.extend(added_text)
                 self.lines.append(line)
@@ -542,16 +545,23 @@ class _TextWrap:
 
     def _purge_segments(self):
         """Clear split segments."""
+
+        def _purge_segments_from_list(text_list: Deque, used_text_ids: Set):
+            """Clear split segments from the given list in place."""
+            checked_text_list = deque()
+            while text_list:
+                text = text_list.pop()
+                text_id = id(text)
+                if text_id not in used_text_ids:
+                    checked_text_list.appendleft(text)
+                    used_text_ids.add(text_id)
+                    text.reset_text()
+
+            text_list.extend(checked_text_list)
+
         used_text_ids = set()
-        checked_text_list = deque()
-        while self.wrapped_text_list:
-            text = self.wrapped_text_list.pop()
-            text_id = id(text)
-            if text_id not in used_text_ids:
-                checked_text_list.appendleft(text)
-                used_text_ids.add(text_id)
-                text.reset_text()
-        self.wrapped_text_list = checked_text_list
+        _purge_segments_from_list(self.wrapped_text_list, used_text_ids)
+        _purge_segments_from_list(self.new_text_list, used_text_ids)
 
     def mark_wrap(self):
         """Set to be re-wrapped."""
