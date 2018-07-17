@@ -241,12 +241,16 @@ class Text:
         Font(font_name='courier new', size=17, bold=False, italic=False)
 
         """
-        self.font = font_objects[self.original_font_repr]
+        self.set_font(font_objects[self.original_font_repr])
         _mark_dirty()
 
     def set_font(self, font: Font):
         """Set the Font to a new Font object."""
+        width = self.get_size()[0]
         self.font = font
+        new_width = self.get_size(self.text_segment)[0]
+        if width != new_width:
+            _rewrap()
         _mark_dirty()
 
     def _force_split(self, remaining_width: int, box_width: int) -> Tuple[str]:
@@ -322,21 +326,23 @@ class Text:
         possible_split_points = {}
         if remaining_width < box_width and "N" in SPLIT_CHARS_ALL_SET:
             possible_split_points["N"] = ("", self.text_segment)
+
         for ind, char in enumerate(self.text_segment):
-            if char in SPLIT_CHARS_ALL_SET:
-                split_ind = ind
-                if char in SPLIT_CHARS_AFTER_SET:
-                    split_ind += 1
-                elif ind == 0 and remaining_width == box_width:
-                    # Cannot split before first char on a new_line
-                    continue
-                text_segment = self.text_segment[:split_ind]
-                other_segment = self.text_segment[split_ind:]
-                text_segment_width = self.get_size(text_segment)[0]
-                if text_segment_width <= remaining_width:
+            split_ind = ind
+            if char in SPLIT_CHARS_AFTER_SET:
+                split_ind += 1
+            elif ind == 0 and remaining_width == box_width:
+                # Cannot split before first char on a new_line
+                continue
+            text_segment = self.text_segment[:split_ind]
+            other_segment = self.text_segment[split_ind:]
+            text_segment_width = self.get_size(text_segment)[0]
+
+            if text_segment_width <= remaining_width:
+                if char in SPLIT_CHARS_ALL_SET and char != "N":
                     possible_split_points[char] = (text_segment, other_segment)
-                else:  # OPTIMIZE: Check length every few characters regardless of if split char
-                    break  # Already outside remaining width
+            else:
+                break  # Already outside remaining width
 
         if possible_split_points:
             split_chars_sorted = sorted(
@@ -492,9 +498,9 @@ class _TextWrap:
         self.unloaded_text_old = deque()
         self.unloaded_text_new = deque()
 
-        self.pos = None
+        self.wrapped_height = 0
 
-        self.new_line_y = 0
+        self.pos = None
 
         self.text_lock = Lock()
 
@@ -502,6 +508,7 @@ class _TextWrap:
         """Get the next line to be filled."""
         if self.lines:
             line = self.lines.pop()
+            self.wrapped_height -= line.height
         else:
             line = _Line()
         return line
@@ -515,7 +522,6 @@ class _TextWrap:
             line = self._next_line()
 
             new_text_segment = None
-            wrapped_height = 0
 
             while self.new_text_list or new_text_segment:
                 # Check new_text_segment to ensure the last line appended
@@ -523,16 +529,18 @@ class _TextWrap:
                 added_text, new_text_segment = line.fit_text(
                     self.new_text_list, box_width
                 )
-                wrapped_height += line.height
-                if wrapped_height > self.pos[3]:
+
+                height_with_line = self.wrapped_height + line.height
+
+                if height_with_line > self.pos[3]:
                     # TODO: Place into unloaded_text_new instead, maybe
-                    # BUG: Still wraps outside screen in brute.
-                    added_text.pop()
-                    added_text.reverse()
-                    self.new_text_list.extendleft(added_text)
+                    line.text_list.reverse()
+                    self.new_text_list.extendleft(line.text_list)
                     break
+
                 self.wrapped_text_list.extend(added_text)
                 self.lines.append(line)
+                self.wrapped_height = height_with_line
 
                 line = _Line()
 
@@ -540,8 +548,6 @@ class _TextWrap:
                     text_id = new_text_segment[0]
                     text_segment = new_text_segment[1]
                     line.text_segments[text_id] = text_segment
-
-            _mark_dirty()
 
     def _purge_segments(self):
         """Clear split segments."""
@@ -562,11 +568,14 @@ class _TextWrap:
         used_text_ids = set()
         _purge_segments_from_list(self.wrapped_text_list, used_text_ids)
         _purge_segments_from_list(self.new_text_list, used_text_ids)
+        _purge_segments_from_list(self.unloaded_text_old, used_text_ids)
+        _purge_segments_from_list(self.unloaded_text_new, used_text_ids)
 
     def mark_wrap(self):
         """Set to be re-wrapped."""
         with self.text_lock:
             self.lines.clear()
+            self.wrapped_height = 0
             # Move old lines back into
             self._purge_segments()
             self.wrapped_text_list.reverse()
@@ -582,6 +591,7 @@ class _TextWrap:
         """Clear all text that has been added to the box."""
         with self.text_lock:
             self.lines.clear()
+            self.wrapped_height = 0
             self.wrapped_text_list.clear()
             self.new_text_list.clear()
             self.unloaded_text_old.clear()
