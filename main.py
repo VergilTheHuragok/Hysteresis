@@ -1,2 +1,2 @@
 """Start the game."""
-from wrap_tests import random_char
+from wrap_tests import paragraph

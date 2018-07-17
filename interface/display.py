@@ -320,7 +320,7 @@ class Text:
 
         """
         possible_split_points = {}
-        if remaining_width < box_width:
+        if remaining_width < box_width and "N" in SPLIT_CHARS_ALL_SET:
             possible_split_points["N"] = ("", self.text_segment)
         for ind, char in enumerate(self.text_segment):
             if char in SPLIT_CHARS_ALL_SET:
