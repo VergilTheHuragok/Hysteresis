@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import deque
 from threading import Lock
-from typing import Deque, Dict, Iterable, List, Tuple
+from typing import Deque, Iterable, List, Tuple, Set
 
 import pygame
 
@@ -15,6 +15,7 @@ import pygame
 #           placed in separate deque so that rewrapping is not necessary
 #           unless scrolling that far back.
 #       Allow wrapping from new to old. Should be default?
+
 # Globals
 running = True
 
@@ -464,7 +465,8 @@ class _Line:
                     self.text_list.append(text)
                 if text_segments[1]:
                     following_text_segment = (text_id, text_segments[1])
-                    box_text_list.appendleft(text)
+                    if text not in box_text_list:
+                        box_text_list.appendleft(text)
                 added_text.append(text)
                 break
 
@@ -498,24 +500,30 @@ class _TextWrap:
         self.unloaded_text_old = deque()
         self.unloaded_text_new = deque()
 
-        self.wrapped_height = 0
+        self.current_height = 0
 
         self.pos = None
 
+        self.scroll = 0
+        self.lock_scroll = False
+
         self.text_lock = Lock()
+        self.scroll_lock = Lock()
 
     def _next_line(self):
         """Get the next line to be filled."""
         if self.lines:
             line = self.lines.pop()
-            self.wrapped_height -= line.height
+            self.current_height -= line.height
+            if self.lock_scroll:
+                self.scroll -= 1
         else:
             line = _Line()
         return line
 
     def _wrap_new_lines(self):
         """Wrap text into lines."""
-        if self.new_text_list:
+        if self.new_text_list and self.current_height < self.pos[3]:
             assert not isinstance(self.pos, type(None))
 
             box_width = self.pos[2]
@@ -530,7 +538,7 @@ class _TextWrap:
                     self.new_text_list, box_width
                 )
 
-                height_with_line = self.wrapped_height + line.height
+                height_with_line = self.current_height + line.height
 
                 if height_with_line > self.pos[3]:
                     # TODO: Place into unloaded_text_new instead, maybe
@@ -540,7 +548,9 @@ class _TextWrap:
 
                 self.wrapped_text_list.extend(added_text)
                 self.lines.append(line)
-                self.wrapped_height = height_with_line
+                if self.lock_scroll:
+                    self.scroll += 1
+                self.current_height = height_with_line
 
                 line = _Line()
 
@@ -571,11 +581,23 @@ class _TextWrap:
         _purge_segments_from_list(self.unloaded_text_old, used_text_ids)
         _purge_segments_from_list(self.unloaded_text_new, used_text_ids)
 
+    def scroll_lines(self, num_lines: int):
+        """Scroll forward and backward through pre-wrapped lines."""
+        with self.scroll_lock:
+            self.scroll += num_lines
+            self._scroll_reposition()
+        _mark_dirty()
+    
+    def _scroll_reposition(self):
+        """Correct the scroll to be on screen."""
+        self.scroll = max(0, self.scroll)
+        self.scroll = min(len(self.lines), self.scroll)
+
     def mark_wrap(self):
         """Set to be re-wrapped."""
         with self.text_lock:
             self.lines.clear()
-            self.wrapped_height = 0
+            self.current_height = 0
             # Move old lines back into
             self._purge_segments()
             self.wrapped_text_list.reverse()
@@ -586,12 +608,13 @@ class _TextWrap:
         """Add text to the current input."""
         with self.text_lock:
             self.new_text_list.extend(text_list)
+        _mark_dirty()
 
     def clear_all_text(self):
         """Clear all text that has been added to the box."""
         with self.text_lock:
             self.lines.clear()
-            self.wrapped_height = 0
+            self.current_height = 0
             self.wrapped_text_list.clear()
             self.new_text_list.clear()
             self.unloaded_text_old.clear()
@@ -599,18 +622,47 @@ class _TextWrap:
         _rewrap()
         _mark_dirty()
 
+    def _get_lines_from_scroll(self):
+        """Return a deque of lines from the scroll point."""
+        lines_from_scroll = deque()
+
+        self._scroll_reposition()
+
+        self.current_height = 0
+
+        while len(self.lines) > self.scroll:
+            line = self.lines.pop()
+            lines_from_scroll.appendleft(line)
+            self.current_height += line.height
+        
+        for line in lines_from_scroll:
+            self.lines.append(line)
+
+        return lines_from_scroll
+
     def render(self, display: pygame.Surface, pos: List[int]):
         """Render the lines of text."""
         with self.text_lock:
-            self.pos = pos
+            with self.scroll_lock:
+                self.pos = pos
 
-            self._wrap_new_lines()
+                lines_from_scroll = self._get_lines_from_scroll()
 
-            line_y = self.pos[1]
-            for line in self.lines:
-                line.set_pos((self.pos[0], line_y))
-                line.render(display)
-                line_y += line.height
+                self._wrap_new_lines()
+
+                lines_from_scroll = self._get_lines_from_scroll()
+
+                # BUG: Text is repeated at end. WHY IS THIS HAPPENING AHHHHH!
+                # IMPORTANT: Finish getting scroll to work
+
+                line_y = self.pos[1]
+                for line in lines_from_scroll:
+                    if line.height + line_y <= self.pos[1] + self.pos[3]:
+                        line.set_pos((self.pos[0], line_y))
+                        line.render(display)
+                        line_y += line.height
+                    else:
+                        break
 
 
 class TextBox:
