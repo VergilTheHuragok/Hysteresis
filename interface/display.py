@@ -436,6 +436,11 @@ class _Line:
             text = box_text_list.popleft()
             text_id = id(text)
 
+            if text in self.text_list:
+                following_text_segment = (text_id, text.text_segment)
+                box_text_list.appendleft(text)
+                break
+
             if text_id in self.text_segments:
                 text_segment = self.text_segments[text_id]
                 text.set_text_segment(text_segment)
@@ -489,6 +494,10 @@ class _Line:
         for text in self.text_list:
             yield text
 
+    def __getitem__(self, ind):
+        """Get a Text object at the index."""
+        return self.text_list[ind]
+
 
 class _TextWrap:
     """Store wrapped text and handle wrapping."""
@@ -509,6 +518,8 @@ class _TextWrap:
 
         self.text_lock = Lock()
         self.scroll_lock = Lock()
+
+        self.remaining_segment = None
 
     def _next_line(self):
         """Get the next line to be filled."""
@@ -534,6 +545,12 @@ class _TextWrap:
             while self.new_text_list or new_text_segment:
                 # Check new_text_segment to ensure the last line appended
 
+                if not isinstance(self.remaining_segment, type(None)):
+                    last_segment = self.new_text_list[-1].text_segment
+                    full_segment = last_segment + self.remaining_segment
+                    self.new_text_list[-1].set_text_segment(full_segment)
+                    self.remaining_segment = None
+
                 added_text, new_text_segment = line.fit_text(
                     self.new_text_list, box_width
                 )
@@ -542,8 +559,15 @@ class _TextWrap:
 
                 if height_with_line > self.pos[3]:
                     # TODO: Place into unloaded_text_new instead, maybe
+
+                    last_segment = line[-1].text_segment
+                    if new_text_segment:
+                        following_text_segment = new_text_segment[1]
+                        self.remaining_segment = last_segment + following_text_segment
+                        # IMPORTANT: use remaining_segment when rewrapping later
                     line.text_list.reverse()
                     self.new_text_list.extendleft(line.text_list)
+                    self._purge_segments([self.new_text_list], False)
                     break
 
                 self.wrapped_text_list.extend(added_text)
@@ -559,7 +583,7 @@ class _TextWrap:
                     text_segment = new_text_segment[1]
                     line.text_segments[text_id] = text_segment
 
-    def _purge_segments(self):
+    def _purge_segments(self, lists=None, reset_segment=True):
         """Clear split segments."""
 
         def _purge_segments_from_list(text_list: Deque, used_text_ids: Set):
@@ -571,15 +595,23 @@ class _TextWrap:
                 if text_id not in used_text_ids:
                     checked_text_list.appendleft(text)
                     used_text_ids.add(text_id)
-                    text.reset_text()
+                    if reset_segment:
+                        text.reset_text()
 
             text_list.extend(checked_text_list)
 
         used_text_ids = set()
-        _purge_segments_from_list(self.wrapped_text_list, used_text_ids)
-        _purge_segments_from_list(self.new_text_list, used_text_ids)
-        _purge_segments_from_list(self.unloaded_text_old, used_text_ids)
-        _purge_segments_from_list(self.unloaded_text_new, used_text_ids)
+
+        if isinstance(lists, type(None)):
+            _purge_segments_from_list(self.wrapped_text_list, used_text_ids)
+            _purge_segments_from_list(self.new_text_list, used_text_ids)
+            _purge_segments_from_list(self.unloaded_text_old, used_text_ids)
+            _purge_segments_from_list(self.unloaded_text_new, used_text_ids)
+        else:
+            for list_ in lists:
+                _purge_segments_from_list(list_, used_text_ids)
+
+
 
     def scroll_lines(self, num_lines: int):
         """Scroll forward and backward through pre-wrapped lines."""
@@ -646,8 +678,8 @@ class _TextWrap:
             with self.scroll_lock:
                 self.pos = pos
 
-                lines_from_scroll = self._get_lines_from_scroll()
 
+                lines_from_scroll = self._get_lines_from_scroll()
                 self._wrap_new_lines()
 
                 lines_from_scroll = self._get_lines_from_scroll()
