@@ -426,7 +426,7 @@ class _Line:
         >>> c = Text("-", b)
         >>> d = a.fit_text(deque([c, c, c, c]), 200)
         >>> (a.width, a.height)
-        (48, 24)
+        (12, 24)
 
         """
         added_text = deque()
@@ -527,7 +527,7 @@ class _TextWrap:
             line = self.lines.pop()
             self.current_height -= line.height
             if self.lock_scroll:
-                self.scroll -= 1
+                self.scroll_lines(-1)
         else:
             line = _Line()
         return line
@@ -573,7 +573,7 @@ class _TextWrap:
                 self.wrapped_text_list.extend(added_text)
                 self.lines.append(line)
                 if self.lock_scroll:
-                    self.scroll += 1
+                    self.scroll_lines(1)
                 self.current_height = height_with_line
 
                 line = _Line()
@@ -658,8 +658,6 @@ class _TextWrap:
         """Return a deque of lines from the scroll point."""
         lines_from_scroll = deque()
 
-        self._scroll_reposition()
-
         self.current_height = 0
 
         while len(self.lines) > self.scroll:
@@ -667,8 +665,7 @@ class _TextWrap:
             lines_from_scroll.appendleft(line)
             self.current_height += line.height
         
-        for line in lines_from_scroll:
-            self.lines.append(line)
+        self.lines.extend(lines_from_scroll)
 
         return lines_from_scroll
 
@@ -678,14 +675,9 @@ class _TextWrap:
             with self.scroll_lock:
                 self.pos = pos
 
-
-                lines_from_scroll = self._get_lines_from_scroll()
+                # IMPORTANT: run through wrap/scroll process and determine why line is duplicated
                 self._wrap_new_lines()
-
                 lines_from_scroll = self._get_lines_from_scroll()
-
-                # BUG: Text is repeated at end. WHY IS THIS HAPPENING AHHHHH!
-                # IMPORTANT: Finish getting scroll to work
 
                 line_y = self.pos[1]
                 for line in lines_from_scroll:
