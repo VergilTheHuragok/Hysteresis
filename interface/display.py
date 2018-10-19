@@ -543,7 +543,7 @@ class _TextWrap:
             new_text_segment = None
 
             while self.new_text_list or new_text_segment:
-                # Check new_text_segment to ensure the last line appended
+                # NOTE: Check new_text_segment to ensure the last line appended
 
                 if not isinstance(self.remaining_segment, type(None)):
                     last_segment = self.new_text_list[-1].text_segment
@@ -558,12 +558,13 @@ class _TextWrap:
                 height_with_line = self.current_height + line.height
 
                 if height_with_line > self.pos[3]:
-                    # TODO: Place into unloaded_text_new instead, maybe
-
-                    last_segment = line[-1].text_segment
+                    # TODO: Place into unloaded_text_new instead
                     if new_text_segment:
+                        # Only saves last segment if new_text_segment exists. I.e. the line was split
                         following_text_segment = new_text_segment[1]
+                        last_segment = line[-1].text_segment
                         self.remaining_segment = last_segment + following_text_segment
+                        line.text_list.pop()
                         # IMPORTANT: use remaining_segment when rewrapping later
                     line.text_list.reverse()
                     self.new_text_list.extendleft(line.text_list)
@@ -579,6 +580,7 @@ class _TextWrap:
                 line = _Line()
 
                 if new_text_segment:
+                    # Convert tuple to dict
                     text_id = new_text_segment[0]
                     text_segment = new_text_segment[1]
                     line.text_segments[text_id] = text_segment
@@ -611,15 +613,13 @@ class _TextWrap:
             for list_ in lists:
                 _purge_segments_from_list(list_, used_text_ids)
 
-
-
     def scroll_lines(self, num_lines: int):
         """Scroll forward and backward through pre-wrapped lines."""
         with self.scroll_lock:
             self.scroll += num_lines
             self._scroll_reposition()
         _mark_dirty()
-    
+
     def _scroll_reposition(self):
         """Correct the scroll to be on screen."""
         self.scroll = max(0, self.scroll)
@@ -664,7 +664,7 @@ class _TextWrap:
             line = self.lines.pop()
             lines_from_scroll.appendleft(line)
             self.current_height += line.height
-        
+
         self.lines.extend(lines_from_scroll)
 
         return lines_from_scroll
