@@ -501,6 +501,8 @@ class _Line:
 
 class _TextWrap:
     """Store wrapped text and handle wrapping."""
+    # IMPORTANT: Traverse current textwrap process and determine if revisions are needed.
+    # Once having gained a foundational understanding of the current system, add support for scrolling.
 
     def __init__(self):
         self.wrapped_text_list = deque()
@@ -512,7 +514,6 @@ class _TextWrap:
         self.pos = None
 
         self.text_lock = Lock()
-        self.scroll_lock = Lock()
 
         self.remaining_segment = None
 
