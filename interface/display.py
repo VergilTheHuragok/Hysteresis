@@ -511,9 +511,6 @@ class _TextWrap:
 
         self.pos = None
 
-        self.scroll = 0
-        self.lock_scroll = False
-
         self.text_lock = Lock()
         self.scroll_lock = Lock()
 
@@ -524,8 +521,6 @@ class _TextWrap:
         if self.lines:
             line = self.lines.pop()
             self.current_height -= line.height
-            if self.lock_scroll:
-                self.scroll_lines(-1)
         else:
             line = _Line()
         return line
@@ -571,8 +566,6 @@ class _TextWrap:
 
                 self.wrapped_text_list.extend(added_text)
                 self.lines.append(line)
-                if self.lock_scroll:
-                    self.scroll_lines(1)
                 self.current_height = height_with_line
 
                 line = _Line()
@@ -609,18 +602,6 @@ class _TextWrap:
             for list_ in lists:
                 _purge_segments_from_list(list_, used_text_ids)
 
-    def scroll_lines(self, num_lines: int):
-        """Scroll forward and backward through pre-wrapped lines."""
-        with self.scroll_lock:
-            self.scroll += num_lines
-            self._scroll_reposition()
-        _mark_dirty()
-
-    def _scroll_reposition(self):
-        """Correct the scroll to be on screen."""
-        self.scroll = max(0, self.scroll)
-        self.scroll = min(len(self.lines), self.scroll)
-
     def mark_wrap(self):
         """Set to be re-wrapped."""
         with self.text_lock:
@@ -648,39 +629,20 @@ class _TextWrap:
         _rewrap()
         _mark_dirty()
 
-    def _get_lines_from_scroll(self):
-        """Return a deque of lines from the scroll point."""
-        lines_from_scroll = deque()
-
-        self.current_height = 0
-
-        while len(self.lines) > self.scroll:
-            line = self.lines.pop()
-            lines_from_scroll.appendleft(line)
-            self.current_height += line.height
-
-        self.lines.extend(lines_from_scroll)
-
-        return lines_from_scroll
-
     def render(self, display: pygame.Surface, pos: List[int]):
         """Render the lines of text."""
         with self.text_lock:
-            with self.scroll_lock:
-                self.pos = pos
+            self.pos = pos
+            self._wrap_new_lines()
 
-                # IMPORTANT: run through wrap/scroll process and determine why line is duplicated
-                self._wrap_new_lines()
-                lines_from_scroll = self._get_lines_from_scroll()
-
-                line_y = self.pos[1]
-                for line in lines_from_scroll:
-                    if line.height + line_y <= self.pos[1] + self.pos[3]:
-                        line.set_pos((self.pos[0], line_y))
-                        line.render(display)
-                        line_y += line.height
-                    else:
-                        break
+            line_y = self.pos[1]
+            for line in self.lines:
+                if line.height + line_y <= self.pos[1] + self.pos[3]:
+                    line.set_pos((self.pos[0], line_y))
+                    line.render(display)
+                    line_y += line.height
+                else:
+                    break
 
 
 class TextBox:
