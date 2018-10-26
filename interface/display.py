@@ -506,8 +506,6 @@ class _TextWrap:
         self.wrapped_text_list = deque()
         self.new_text_list = deque()
         self.lines = deque()
-        self.unloaded_text_old = deque()
-        self.unloaded_text_new = deque()
 
         self.current_height = 0
 
@@ -607,8 +605,6 @@ class _TextWrap:
         if isinstance(lists, type(None)):
             _purge_segments_from_list(self.wrapped_text_list, used_text_ids)
             _purge_segments_from_list(self.new_text_list, used_text_ids)
-            _purge_segments_from_list(self.unloaded_text_old, used_text_ids)
-            _purge_segments_from_list(self.unloaded_text_new, used_text_ids)
         else:
             for list_ in lists:
                 _purge_segments_from_list(list_, used_text_ids)
@@ -649,8 +645,6 @@ class _TextWrap:
             self.current_height = 0
             self.wrapped_text_list.clear()
             self.new_text_list.clear()
-            self.unloaded_text_old.clear()
-            self.unloaded_text_new.clear()
         _rewrap()
         _mark_dirty()
 
