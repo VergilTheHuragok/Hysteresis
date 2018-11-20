@@ -3,7 +3,7 @@
 from threading import Thread
 from time import sleep
 
-from interface.display import render, running
+from interface.display import render, RUNNING
 import interface.display
 
 import interface.input
@@ -20,7 +20,7 @@ def _interface_loop():
 
     display = pygame.display.set_mode(RESOLUTION, pygame.RESIZABLE)
 
-    while running:
+    while RUNNING:
         # Render display
         render(display, (0, 0, 0))
 
@@ -44,4 +44,4 @@ def init():
 def get_running():
     """Check if the interface has been closed by the user or stopped."""
     # TODO: check if any important threads have terminated
-    return interface.display.running
+    return interface.display.RUNNING

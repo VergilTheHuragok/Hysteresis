@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import deque
 from threading import Lock
-from typing import Deque, Iterable, List, Tuple, Set
+from typing import Deque, Iterable, List, Optional, Set, Tuple
 
 import pygame
 
@@ -17,10 +17,10 @@ import pygame
 #       Allow wrapping from new to old. Should be default?
 
 # Globals
-running = True
+RUNNING = True
 
 # Constants
-TICK = .01
+TICK = 0.01
 TEXTBOX_LOCK = Lock()
 TEXTBOXES = []
 
@@ -86,11 +86,11 @@ def check_events(
     display: pygame.Surface, events: Iterable[pygame.event.Event]
 ) -> pygame.Surface:
     """Check pygame display events and execute accordingly."""
-    global running
+    global RUNNING
 
     for event in events:
         if event.type == pygame.QUIT:
-            running = False
+            RUNNING = False
         elif event.type == pygame.VIDEORESIZE:
             display = _resize_display(event.dict["size"])
 
@@ -138,7 +138,7 @@ class Font:
         size: int = None,
         bold: bool = None,
         italic: bool = None,
-    ) -> Font:
+    ) -> Font:  # NOQA: F821
         """Create a new font based off this one.
 
         Examples
@@ -220,7 +220,7 @@ class Text:
         """Reset the text's text_segment to the original, full string."""
         self.text_segment = self.all_text
 
-    def set_text_segment(self, text_segment: str or None):
+    def set_text_segment(self, text_segment: Optional[str]):
         """Set the text_segment until .reset_text() is called."""
         if not isinstance(text_segment, type(None)):
             self.text_segment = text_segment
@@ -501,6 +501,7 @@ class _Line:
 
 class _TextWrap:
     """Store wrapped text and handle wrapping."""
+
     # IMPORTANT: Traverse current textwrap process and determine if revisions are needed.
     # Once having gained a foundational understanding of the current system, add support for scrolling.
 
