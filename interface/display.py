@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import deque
 from threading import Lock
 from typing import Deque, Iterable, List, Optional, Set, Tuple
+from itertools import islice
 
 import pygame
 
@@ -435,6 +436,7 @@ class _Line:
             text_id = id(text)
 
             if text in self.text_list:
+                # This should only occur if text object reached bottom
                 following_text_segment = (text_id, text.text_segment)
                 box_text_list.appendleft(text)
                 break
@@ -508,16 +510,21 @@ class _TextWrap:
     #       Just take text objects from textbox and store reprs in file
     #       Textbox can then be recreated at this higher level from reprs in file
 
+    # IMPORTANT: Fix out of order text on launch
+
     def __init__(self):
         self.wrapped_text_list = deque()
         self.new_text_list = deque()
-        self.lines = deque()
 
         self.current_height = 0
 
         self.pos = None
 
         self.text_lock = Lock()
+
+        self.lines = deque()
+        self.line_num = 0
+        self.remaining_segments = {}
 
     def _next_line(self):
         """Get the next line to be filled."""
@@ -548,17 +555,25 @@ class _TextWrap:
             new_text_segment = None
 
             while text_needs_wrapped():
-                # NOTE: Check new_text_segment to ensure the last line appended
 
-                # Looks like self.remaining_segment is purely used for scrolling stuffs
+                # Add segments lost after ceasing previous wrap at bottom
+                for text_id, segment in tuple(self.remaining_segments.items()):
+                    if text_id not in line.text_segments:
+                        line.text_segments[text_id] = segment
+                        del self.remaining_segments[text_id]
 
                 added_text, new_text_segment = line.fit_text(
                     self.new_text_list, box_width
                 )
 
-                height_with_line = self.current_height + line.height
-
-                if height_with_line > self.pos[3]:
+                if self.current_height + line.height > self.pos[3]:
+                    if new_text_segment:
+                        # TODO: Are dicts really necessary for segments? 
+                        #   Text should only split if last in line, only need one segment
+                        #   Assuming there is only ever one segment here
+                        for text_id, segment in line.text_segments.items():
+                            full_segment = segment + new_text_segment[1]
+                            self.remaining_segments[text_id] = full_segment
                     line.text_list.reverse()
                     self.new_text_list.extendleft(line.text_list)
                     self._purge_segments([self.new_text_list], False)
@@ -567,15 +582,17 @@ class _TextWrap:
                 self.wrapped_text_list.extend(added_text)
                 self._purge_segments([self.wrapped_text_list], False)
                 self.lines.append(line)
-                self.current_height = height_with_line
+                if len(self.lines) >= self.line_num:
+                    self.current_height += line.height
 
                 line = _Line()
 
                 if new_text_segment:
-                    # Convert tuple to dict
-                    text_id = new_text_segment[0]
-                    text_segment = new_text_segment[1]
-                    line.text_segments[text_id] = text_segment
+                    if new_text_segment[0] not in self.remaining_segments: 
+                        # Convert tuple to dict
+                        text_id = new_text_segment[0]
+                        text_segment = new_text_segment[1]
+                        line.text_segments[text_id] = text_segment
 
     def _purge_segments(self, lists=None, reset_segment=True):
         """Clear split segments."""
@@ -613,11 +630,30 @@ class _TextWrap:
             self.wrapped_text_list.reverse()
             self.new_text_list.extendleft(self.wrapped_text_list)
             self.wrapped_text_list.clear()
+            self.line_num = 0
 
     def add_text(self, text_list: Iterable[Text]):
         """Add text to the current input."""
         with self.text_lock:
             self.new_text_list.extend(text_list)
+        _mark_dirty()
+
+    def get_lines(self):
+        """Return a deque of the current lines from scroll."""
+        return islice(self.lines, self.line_num, None)
+
+    def calculate_height(self):
+        """Reset the current height."""
+        self.current_height = 0
+        for line in self.get_lines():
+            self.current_height += line.height
+
+    def scroll_lines(self, num_lines):
+        """Scroll a given number of lines."""
+        self.line_num += num_lines
+        self.line_num = max(0, self.line_num)
+        self.line_num = min(len(self.lines), self.line_num)
+        self.calculate_height()
         _mark_dirty()
 
     def clear_all_text(self):
@@ -637,7 +673,7 @@ class _TextWrap:
             self._wrap_new_lines()
 
             line_y = self.pos[1]
-            for line in self.lines:
+            for line in self.get_lines():
                 if line.height + line_y <= self.pos[1] + self.pos[3]:
                     line.set_pos((self.pos[0], line_y))
                     line.render(display)

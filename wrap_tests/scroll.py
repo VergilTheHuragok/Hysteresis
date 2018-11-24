@@ -4,7 +4,7 @@ Must be ran from root of project.
 """
 from time import sleep
 import random
-import string
+import _thread
 
 from interface.display import TextBox, Text, Font
 import interface.start
@@ -22,20 +22,23 @@ The broad narrative of Hitchhiker follows the misadventures of the last survivin
 
 """
 
-y = TextBox([.1, .1, .9, .9])
+y = TextBox([0.1, 0.1, 0.9, 0.9])
 
 y.text_wrap.add_text([Text(text, font1)])
+scroll = []
+
+
+def new_thread():
+    _thread.start_new_thread(lambda: scroll.append(input()), ())
+
+
+new_thread()
 
 while interface.start.get_running():
-    input()
-    y.text_wrap.scroll_lines(random.choice((-1, 1, 1, 1, 1))) # random.randint(-5, 5))
-
-    # color = tuple(random.randint(0, 255) for _ in range(0, 3))
-    # text = (
-    #     "".join(
-    #         random.choice(string.printable)
-    #         for i in range(0, random.randint(1, 100))
-    #     )
-    # ).replace("\n", "")
-
-    # y.text_wrap.add_text([Text(text, font1, highlight=color)])
+    if scroll:
+        amount = scroll.pop()
+        if amount == "":
+            amount = random.randint(-5, 5)
+        new_thread()
+        y.text_wrap.scroll_lines(int(amount))
+    sleep(.01)

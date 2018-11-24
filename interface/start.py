@@ -20,7 +20,7 @@ def _interface_loop():
 
     display = pygame.display.set_mode(RESOLUTION, pygame.RESIZABLE)
 
-    while RUNNING:
+    while get_running():
         # Render display
         render(display, (0, 0, 0))
 
