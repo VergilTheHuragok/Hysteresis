@@ -8,14 +8,6 @@ from typing import Deque, Iterable, List, Optional, Set, Tuple
 
 import pygame
 
-# TODO: When scrolling should save lines out of screen or just rewrap?
-#       Probably should save lines to be safe. Obviously clear on rewrap.
-#       Lines should remain in self.lines until case below
-#       Lines outside buffer range are decomposed back into text objects and
-#           placed in separate deque so that rewrapping is not necessary
-#           unless scrolling that far back.
-#       Allow wrapping from new to old. Should be default?
-
 # Globals
 RUNNING = True
 
@@ -507,8 +499,14 @@ class _Line:
 class _TextWrap:
     """Store wrapped text and handle wrapping."""
 
-    # IMPORTANT: Traverse current textwrap process and determine if revisions are needed.
-    # Once having gained a foundational understanding of the current system, add support for scrolling.
+    # TODO: Add scrolling support at display level
+    # TODO: Add hover word support at display level
+    #   Easiest way to ensure hover text stays with correct words
+    # TODO: Store text older than a given num of lines in a file
+    #   use repr of text objects to store/retrieve
+    #   This should all take place at a higher level
+    #       Just take text objects from textbox and store reprs in file
+    #       Textbox can then be recreated at this higher level from reprs in file
 
     def __init__(self):
         self.wrapped_text_list = deque()
@@ -554,6 +552,7 @@ class _TextWrap:
             while text_needs_wrapped():
                 # NOTE: Check new_text_segment to ensure the last line appended
 
+                # Looks like self.remaining_segment is purely used for scrolling stuffs
                 if not isinstance(self.remaining_segment, type(None)):
                     last_segment = self.new_text_list[-1].text_segment
                     full_segment = last_segment + self.remaining_segment
@@ -567,9 +566,9 @@ class _TextWrap:
                 height_with_line = self.current_height + line.height
 
                 if height_with_line > self.pos[3]:
-                    # TODO: Place into unloaded_text_new instead
                     if new_text_segment:
-                        # Only saves last segment if new_text_segment exists. I.e. the line was split
+                        # Will not be added to next line because reached screen bottom
+                        # Must be added back 
                         following_text_segment = new_text_segment[1]
                         last_segment = line[-1].text_segment
                         self.remaining_segment = last_segment + following_text_segment
