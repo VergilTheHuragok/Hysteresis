@@ -631,6 +631,7 @@ class _TextWrap:
             self.new_text_list.extendleft(self.wrapped_text_list)
             self.wrapped_text_list.clear()
             self.line_num = 0
+            self.remaining_segments.clear()
 
     def add_text(self, text_list: Iterable[Text]):
         """Add text to the current input."""
@@ -653,6 +654,7 @@ class _TextWrap:
         self.line_num += num_lines
         self.line_num = max(0, self.line_num)
         self.line_num = min(len(self.lines), self.line_num)
+        # NOTE: Currently only allows scrolling down as many lines are on screen
         self.calculate_height()
         _mark_dirty()
 
