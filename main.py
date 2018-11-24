@@ -1,2 +1,2 @@
 """Start the game."""
-from wrap_tests import brute
+from wrap_tests import scroll

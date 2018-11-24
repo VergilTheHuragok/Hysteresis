@@ -34,6 +34,7 @@ SPLIT_CHARS_AFTER = list(" -.,!?;/\\)>]}+*&^%`")
 SPLIT_CHARS_AFTER_SET = set(SPLIT_CHARS_AFTER)
 
 SPLIT_CHARS_BEFORE = list("(<[{_$#@|~N")
+# N splits at end of text object
 
 SPLIT_CHARS_ALL = SPLIT_CHARS_AFTER + SPLIT_CHARS_BEFORE
 SPLIT_CHARS_ALL_SET = set(SPLIT_CHARS_ALL)
@@ -42,11 +43,6 @@ DIRTY = False
 
 font_objects = {}
 FONT_LOCK = Lock()
-
-
-def _split_chars_sort(char: Iterable[str]) -> int:
-    """Sort an Iterable of split chars."""
-    return SPLIT_CHARS_ALL.index(char)
 
 
 def _mark_dirty():
@@ -324,6 +320,11 @@ class Text:
         ('aaa', '(bbbbb)')
 
         """
+
+        def _split_chars_sort(char: Iterable[str]) -> int:
+            """Sort an Iterable of split chars."""
+            return SPLIT_CHARS_ALL.index(char)
+
         possible_split_points = {}
         if remaining_width < box_width and "N" in SPLIT_CHARS_ALL_SET:
             possible_split_points["N"] = ("", self.text_segment)
@@ -429,10 +430,15 @@ class _Line:
         (12, 24)
 
         """
+
+        def text_needs_wrapped():
+            """Check if text still needs wrapped."""
+            return box_text_list
+
         added_text = deque()
         following_text_segment = ()
 
-        while box_text_list and not self.new_line:
+        while text_needs_wrapped() and not self.new_line:
             text = box_text_list.popleft()
             text_id = id(text)
 
@@ -470,8 +476,7 @@ class _Line:
                     self.text_list.append(text)
                 if text_segments[1]:
                     following_text_segment = (text_id, text_segments[1])
-                    if text not in box_text_list:
-                        box_text_list.appendleft(text)
+                    box_text_list.appendleft(text)
                 added_text.append(text)
                 break
 
@@ -529,7 +534,16 @@ class _TextWrap:
 
     def _wrap_new_lines(self):
         """Wrap text into lines."""
-        if self.new_text_list and self.current_height < self.pos[3]:
+
+        def text_needs_wrapped():
+            """Check if text still needs wrapped."""
+            return self.new_text_list
+
+        def within_height():
+            """Check if the current wrapped lines are shorter than height of box."""
+            return self.current_height < self.pos[3]
+
+        if text_needs_wrapped() and within_height():
             assert not isinstance(self.pos, type(None))
 
             box_width = self.pos[2]
@@ -537,7 +551,7 @@ class _TextWrap:
 
             new_text_segment = None
 
-            while self.new_text_list or new_text_segment:
+            while text_needs_wrapped():
                 # NOTE: Check new_text_segment to ensure the last line appended
 
                 if not isinstance(self.remaining_segment, type(None)):
@@ -567,6 +581,7 @@ class _TextWrap:
                     break
 
                 self.wrapped_text_list.extend(added_text)
+                self._purge_segments([self.wrapped_text_list], False)
                 self.lines.append(line)
                 self.current_height = height_with_line
 
