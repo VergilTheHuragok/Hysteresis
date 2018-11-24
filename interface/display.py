@@ -519,8 +519,6 @@ class _TextWrap:
 
         self.text_lock = Lock()
 
-        self.remaining_segment = None
-
     def _next_line(self):
         """Get the next line to be filled."""
         if self.lines:
@@ -553,11 +551,6 @@ class _TextWrap:
                 # NOTE: Check new_text_segment to ensure the last line appended
 
                 # Looks like self.remaining_segment is purely used for scrolling stuffs
-                if not isinstance(self.remaining_segment, type(None)):
-                    last_segment = self.new_text_list[-1].text_segment
-                    full_segment = last_segment + self.remaining_segment
-                    self.new_text_list[-1].set_text_segment(full_segment)
-                    self.remaining_segment = None
 
                 added_text, new_text_segment = line.fit_text(
                     self.new_text_list, box_width
@@ -566,14 +559,6 @@ class _TextWrap:
                 height_with_line = self.current_height + line.height
 
                 if height_with_line > self.pos[3]:
-                    if new_text_segment:
-                        # Will not be added to next line because reached screen bottom
-                        # Must be added back 
-                        following_text_segment = new_text_segment[1]
-                        last_segment = line[-1].text_segment
-                        self.remaining_segment = last_segment + following_text_segment
-                        line.text_list.pop()
-                        # IMPORTANT: use remaining_segment when rewrapping later
                     line.text_list.reverse()
                     self.new_text_list.extendleft(line.text_list)
                     self._purge_segments([self.new_text_list], False)
