@@ -82,6 +82,13 @@ def check_events(
             RUNNING = False
         elif event.type == pygame.VIDEORESIZE:
             display = _resize_display(event.dict["size"])
+        elif event.type == pygame.MOUSEBUTTONDOWN:
+            if event.button in [4, 5]:
+                # Mouse Scroll
+                pos = event.dict["pos"]
+                for box in TEXTBOXES:
+                    if box.
+                
 
     return display
 
@@ -736,6 +743,11 @@ class TextBox:
         self.pos = [int(x) for x in pos]
 
         return self.pos
+
+    def within_box(x: int, y: int, width: int) -> bool:
+        """Check if given coordinates are within the box."""
+        if 
+
 
     def _draw_box(self, display: pygame.Surface):
         """Draw the outline of the textbox to the display."""
