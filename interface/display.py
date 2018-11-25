@@ -528,7 +528,6 @@ class _Line:
 class _TextWrap:
     """Store wrapped text and handle wrapping."""
 
-    # TODO: Text objects still merging together
     # TODO: Add hover word support at display level
     #   Easiest way to ensure hover text stays with correct words
     # TODO: Store text older than a given num of lines in a file
@@ -600,6 +599,8 @@ class _TextWrap:
 
                 if self.current_height + line.height > self.pos[3]:
                     if new_text_segment or line.text_segments:
+
+                        # Move line and new segments into remaining segments
                         segment = ""
                         text_id = id(line[0])
                         for text_id in map(id, line):
