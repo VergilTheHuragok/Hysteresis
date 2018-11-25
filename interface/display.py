@@ -37,6 +37,8 @@ DIRTY = False
 font_objects = {}
 FONT_LOCK = Lock()
 
+SCROLL_AMOUNT = 1
+
 
 def _mark_dirty():
     """Mark the display dirty (i.e. set to redraw)."""
@@ -87,9 +89,13 @@ def check_events(
                 # Mouse Scroll
                 pos = event.dict["pos"]
                 for box in TEXTBOXES:
-                    if box.
-                
-
+                    if box.within_box(*pos, display.get_width(), display.get_height()):
+                        if event.button == 4:
+                            box.text_wrap.scroll_lines(-SCROLL_AMOUNT)
+                        else:
+                            box.text_wrap.scroll_lines(SCROLL_AMOUNT)
+                        break
+       
     return display
 
 
@@ -508,7 +514,8 @@ class _Line:
 class _TextWrap:
     """Store wrapped text and handle wrapping."""
 
-    # TODO: Add scrolling support at display level
+    # TODO: Fix duplicate lines while scrolling
+    #       Probably due to fit_text's other return
     # TODO: Add hover word support at display level
     #   Easiest way to ensure hover text stays with correct words
     # TODO: Store text older than a given num of lines in a file
@@ -516,8 +523,6 @@ class _TextWrap:
     #   This should all take place at a higher level
     #       Just take text objects from textbox and store reprs in file
     #       Textbox can then be recreated at this higher level from reprs in file
-
-    # IMPORTANT: Fix out of order text on launch
 
     def __init__(self):
         self.wrapped_text_list = deque()
@@ -561,11 +566,15 @@ class _TextWrap:
 
             new_text_segment = None
 
-            while text_needs_wrapped():
+            # BUG: Without newlines, some textobjects merged with previous
+            #       Probably related: some text is lost when merged
+
+            while text_needs_wrapped() or line.text_segments:
+                # NOTE: Final line has text_segment but no text remains to be wrapped
 
                 # Add segments lost after ceasing previous wrap at bottom
                 for text_id, segment in tuple(self.remaining_segments.items()):
-                    if text_id not in line.text_segments:
+                    if text_id not in line.text_segments and not line.new_line:
                         line.text_segments[text_id] = segment
                         del self.remaining_segments[text_id]
 
@@ -574,12 +583,14 @@ class _TextWrap:
                 )
 
                 if self.current_height + line.height > self.pos[3]:
-                    if new_text_segment:
+                    if new_text_segment or line.text_segments:
                         # TODO: Are dicts really necessary for segments? 
                         #   Text should only split if last in line, only need one segment
-                        #   Assuming there is only ever one segment here
                         for text_id, segment in line.text_segments.items():
-                            full_segment = segment + new_text_segment[1]
+                            new_segment = ""
+                            if new_text_segment:
+                                new_segment = new_text_segment[1]
+                            full_segment = segment + new_segment
                             self.remaining_segments[text_id] = full_segment
                     line.text_list.reverse()
                     self.new_text_list.extendleft(line.text_list)
@@ -660,8 +671,8 @@ class _TextWrap:
         """Scroll a given number of lines."""
         self.line_num += num_lines
         self.line_num = max(0, self.line_num)
-        self.line_num = min(len(self.lines), self.line_num)
-        # NOTE: Currently only allows scrolling down as many lines are on screen
+        self.line_num = min(len(self.lines) - 1, self.line_num)
+        # NOTE: Currently only allows scrolling down as many lines as are on screen
         self.calculate_height()
         _mark_dirty()
 
@@ -744,9 +755,23 @@ class TextBox:
 
         return self.pos
 
-    def within_box(x: int, y: int, width: int) -> bool:
-        """Check if given coordinates are within the box."""
-        if 
+    def within_box(self, x: int, y: int, width: int, height: int) -> bool:
+        """Check if given coordinates are within the box.
+        
+        Parameters
+        ----------
+        x
+            x coordinate of point
+        y
+            y coordinate of point
+        width
+            The width of the display
+        height
+            The height of the display
+        """
+        rect = self._get_rect(width, height)
+        coords = [rect[0], rect[1], rect[2] + rect[0], rect[3] + rect[1]]
+        return coords[0] < x < coords[2] and coords[1] < y < coords[3]
 
 
     def _draw_box(self, display: pygame.Surface):

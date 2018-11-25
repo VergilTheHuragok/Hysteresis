@@ -47,6 +47,7 @@ font1 = Font("Courier New", 20, True, True)
 y = TextBox([0.1, 0.1, 0.9, 0.9])
 for line in text_from_html(text).split("\n"):
     y.text_wrap.add_text([Text(line, font1, new_line=True)])
+# y.text_wrap.add_text([Text(text_from_html(text), font1, new_line=True)])
 
 
 while interface.start.get_running():

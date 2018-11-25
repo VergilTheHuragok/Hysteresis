@@ -13,12 +13,13 @@ interface.start.init()
 font1 = Font("Courier New", 20, True, True)
 
 text = """
-The Hitchhiker's Guide to the Galaxy[1] (sometimes referred to as HG2G,[2] HHGTTG[3] or H2G2[4]) is a comedy science fiction series created by Douglas Adams. Originally a radio comedy broadcast on BBC Radio 4 in 1978, it was later adapted to other formats, including stage shows, novels, comic books, a 1981 TV series, a 1984 video game, and 2005 feature film.
+For all its material advantages, the sedentary life has left us edgy, unfulfilled. Even after 400 generations in villages and cities, we haven’t forgotten. The open road still softly calls, like a nearly forgotten song of childhood. We invest far-off places with a certain romance. This appeal, I suspect, has been meticulously crafted by natural selection as an essential element in our survival. Long summers, mild winters, rich harvests, plentiful game—none of them lasts forever. It is beyond our powers to predict the future. Catastrophic events have a way of sneaking up on us, of catching us unaware. Your own life, or your band’s, or even your species’ might be owed to a restless few—drawn, by a craving they can hardly articulate or understand, to undiscovered lands and new worlds.
 
-A prominent series in British popular culture, The Hitchhiker's Guide to the Galaxy has become an international multi-media phenomenon; the novels are the most widely distributed, having been translated into more than 30 languages by 2005.[5][6] In 2017, BBC Radio 4 announced a 40th-anniversary celebration with Dirk Maggs, one of the original producers, in charge.[7] This sixth series of the sci-fi spoof has been based on Eoin Colfer's book And Another Thing, with additional unpublished material by Douglas Adams. The first of six new episodes was broadcast on 8 March 2018.[8]
+Herman Melville, in Moby Dick, spoke for wanderers in all epochs and meridians: “I am tormented with an everlasting itch for things remote. I love to sail forbidden seas…”
 
-The broad narrative of Hitchhiker follows the misadventures of the last surviving man, Arthur Dent, following the demolition of the planet Earth by a Vogon constructor fleet to make way for a hyperspace bypass. Dent is rescued from Earth's destruction by Ford Prefect, a human-like alien writer for the eccentric, electronic travel guide The Hitchhiker's Guide to the Galaxy, by hitchhiking onto a passing Vogon spacecraft. Following his rescue, Dent explores the galaxy with Prefect and encounters Trillian, another human that had been taken from Earth prior to its destruction by the President of the Galaxy, the two-headed Zaphod Beeblebrox, and the depressed Marvin, the Paranoid Android. Certain narrative details were changed between the various adaptations.
+Maybe it’s a little early. Maybe the time is not quite yet. But those other worlds— promising untold opportunities—beckon.
 
+Silently, they orbit the Sun, waiting.
 """
 
 x = TextBox([.1, .1, .45, .9])
