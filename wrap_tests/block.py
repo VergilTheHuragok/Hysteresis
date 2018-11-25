@@ -36,19 +36,23 @@ def text_from_html(body):
     return u" ".join(t.strip() for t in visible_texts)
 
 
-session = HTMLSession()
-r = session.get("https://rifters.com/real/STARFISH.htm")
-text = r.text
+def get_text():
+    session = HTMLSession()
+    r = session.get("https://rifters.com/real/STARFISH.htm")
+    return text_from_html(r.text)
 
-interface.start.init()
+def start():
+    interface.start.init()
 
-font1 = Font("Courier New", 20, True, True)
+    font1 = Font("Courier New", 20, True, True)
 
-y = TextBox([0.1, 0.1, 0.9, 0.9])
-for line in text_from_html(text).split("\n"):
-    y.text_wrap.add_text([Text(line, font1, new_line=True)])
-# y.text_wrap.add_text([Text(text_from_html(text), font1, new_line=True)])
+    text = get_text()
+
+    y = TextBox([0.1, 0.1, 0.9, 0.9])
+    # for line in text_from_html(text).split("\n"):
+    #     y.text_wrap.add_text([Text(line, font1, new_line=True)])
+    y.text_wrap.add_text([Text(text, font1, new_line=True)])
 
 
-while interface.start.get_running():
-    sleep(0.01)
+    while interface.start.get_running():
+        sleep(0.01)

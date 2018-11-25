@@ -510,12 +510,18 @@ class _Line:
         """Get a Text object at the index."""
         return self.text_list[ind]
 
+    def __contains__(self, text_id):
+        """Check if text_id is present in line."""
+        for text in self:
+            if id(text) == text_id:
+                return True
+        return False
+
 
 class _TextWrap:
     """Store wrapped text and handle wrapping."""
 
-    # TODO: Fix duplicate lines while scrolling
-    #       Probably due to fit_text's other return
+    # TODO: Text objects still merging together
     # TODO: Add hover word support at display level
     #   Easiest way to ensure hover text stays with correct words
     # TODO: Store text older than a given num of lines in a file
@@ -566,9 +572,6 @@ class _TextWrap:
 
             new_text_segment = None
 
-            # BUG: Without newlines, some textobjects merged with previous
-            #       Probably related: some text is lost when merged
-
             while text_needs_wrapped() or line.text_segments:
                 # NOTE: Final line has text_segment but no text remains to be wrapped
 
@@ -582,16 +585,34 @@ class _TextWrap:
                     self.new_text_list, box_width
                 )
 
+                # Check if remaining segments added to line were unused
+                for text_id, segment in tuple(line.text_segments.items()):
+                    if text_id not in line:
+                        self.remaining_segments[text_id] = segment
+                        del line.text_segments[text_id]
+
                 if self.current_height + line.height > self.pos[3]:
                     if new_text_segment or line.text_segments:
-                        # TODO: Are dicts really necessary for segments? 
-                        #   Text should only split if last in line, only need one segment
-                        for text_id, segment in line.text_segments.items():
-                            new_segment = ""
+                        new_segment = ""
+                        text_id = id(line[0])
+                        if len(line.text_segments) > 1:
+                            # segment at start and end
+                            segment_first = line.text_segments[text_id]
+                            self.remaining_segments[text_id] = segment_first
+
+                            text_id_last = id(line[-1])
+                            segment_last = line.text_segments[text_id_last]
+                            if new_text_segment:
+                                segment_last += new_text_segment[1]
+                            self.remaining_segments[text_id_last] = segment_last
+                        else:
                             if new_text_segment:
                                 new_segment = new_text_segment[1]
-                            full_segment = segment + new_segment
+                            
+                            last_segment = line.text_segments[text_id]
+                            full_segment = last_segment + new_segment
                             self.remaining_segments[text_id] = full_segment
+                        line.text_segments.clear()
                     line.text_list.reverse()
                     self.new_text_list.extendleft(line.text_list)
                     self._purge_segments([self.new_text_list], False)
