@@ -95,7 +95,7 @@ def check_events(
                         else:
                             box.text_wrap.scroll_lines(SCROLL_AMOUNT)
                         break
-       
+
     return display
 
 
@@ -517,6 +517,13 @@ class _Line:
                 return True
         return False
 
+    def __bool__(self):
+        """Get a boolean state of this line.
+
+        True if contains text.
+        """
+        return bool(self.text_list)
+
 
 class _TextWrap:
     """Store wrapped text and handle wrapping."""
@@ -608,7 +615,7 @@ class _TextWrap:
                         else:
                             if new_text_segment:
                                 new_segment = new_text_segment[1]
-                            
+
                             last_segment = line.text_segments[text_id]
                             full_segment = last_segment + new_segment
                             self.remaining_segments[text_id] = full_segment
@@ -627,7 +634,7 @@ class _TextWrap:
                 line = _Line()
 
                 if new_text_segment:
-                    if new_text_segment[0] not in self.remaining_segments: 
+                    if new_text_segment[0] not in self.remaining_segments:
                         # Convert tuple to dict
                         text_id = new_text_segment[0]
                         text_segment = new_text_segment[1]
@@ -793,7 +800,6 @@ class TextBox:
         rect = self._get_rect(width, height)
         coords = [rect[0], rect[1], rect[2] + rect[0], rect[3] + rect[1]]
         return coords[0] < x < coords[2] and coords[1] < y < coords[3]
-
 
     def _draw_box(self, display: pygame.Surface):
         """Draw the outline of the textbox to the display."""
