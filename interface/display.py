@@ -600,25 +600,23 @@ class _TextWrap:
 
                 if self.current_height + line.height > self.pos[3]:
                     if new_text_segment or line.text_segments:
-                        new_segment = ""
+                        segment = ""
                         text_id = id(line[0])
-                        if len(line.text_segments) > 1:
-                            # segment at start and end
-                            segment_first = line.text_segments[text_id]
-                            self.remaining_segments[text_id] = segment_first
+                        for text_id in map(id, line):
+                            if text_id in line.text_segments:
+                                segment = line.text_segments[text_id]
+                            if new_text_segment and text_id == new_text_segment[0]:
+                                segment += new_text_segment[1]
+                                new_text_segment = ()
+                            self.remaining_segments[text_id] = segment
+                            segment = ""
+                        
+                        if new_text_segment:
+                            text_id = new_text_segment[0]
+                            segment = new_text_segment[1]
+                            self.remaining_segments[text_id] = segment
+                            new_text_segment = ()
 
-                            text_id_last = id(line[-1])
-                            segment_last = line.text_segments[text_id_last]
-                            if new_text_segment:
-                                segment_last += new_text_segment[1]
-                            self.remaining_segments[text_id_last] = segment_last
-                        else:
-                            if new_text_segment:
-                                new_segment = new_text_segment[1]
-
-                            last_segment = line.text_segments[text_id]
-                            full_segment = last_segment + new_segment
-                            self.remaining_segments[text_id] = full_segment
                         line.text_segments.clear()
                     line.text_list.reverse()
                     self.new_text_list.extendleft(line.text_list)
