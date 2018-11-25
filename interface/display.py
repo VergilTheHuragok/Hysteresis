@@ -38,6 +38,7 @@ font_objects = {}
 FONT_LOCK = Lock()
 
 SCROLL_AMOUNT = 1
+mouse_down = None
 
 
 def _mark_dirty():
@@ -73,11 +74,17 @@ def _resize_display(size: Iterable[int]) -> pygame.Surface:
     return pygame.display.set_mode(size, pygame.VIDEORESIZE)
 
 
+def get_dims(display: pygame.Surface) -> Tuple[int]:
+    """Get the dimensions of the screen."""
+
+    return display.get_width(), display.get_height()
+
+
 def check_events(
     display: pygame.Surface, events: Iterable[pygame.event.Event]
 ) -> pygame.Surface:
     """Check pygame display events and execute accordingly."""
-    global RUNNING
+    global RUNNING, mouse_down
 
     for event in events:
         if event.type == pygame.QUIT:
@@ -89,11 +96,26 @@ def check_events(
                 # Mouse Scroll
                 pos = event.dict["pos"]
                 for box in TEXTBOXES:
-                    if box.within_box(*pos, display.get_width(), display.get_height()):
+                    if box.within_box(*pos, *get_dims(display)):
                         if event.button == 4:
                             box.text_wrap.scroll_lines(-SCROLL_AMOUNT)
                         else:
                             box.text_wrap.scroll_lines(SCROLL_AMOUNT)
+                        break
+            elif event.button == 1:
+                # Click
+                mouse_down = event.dict["pos"]
+        elif event.type == pygame.MOUSEBUTTONUP:
+            if event.button == 1:
+                # Release
+                mouse_down = None
+        elif event.type == pygame.MOUSEMOTION:
+            # Drag
+            if mouse_down:
+                for box in TEXTBOXES:
+                    if box.within_box(*mouse_down, *get_dims(display)):
+                        if box.text_wrap.scroll_drag(mouse_down, event.dict["pos"]):
+                            mouse_down = event.dict["pos"]
                         break
 
     return display
@@ -501,6 +523,25 @@ class _Line:
             text.render(display)
             text_x += text.get_size()[0]
 
+    def get_rect(self):
+        """Get the bounding rect for this line."""
+        return [*self.pos, self.width, self.height]
+
+    def within_line(self, x: int, y) -> bool:
+        """Check if given coordinates are within the line.
+
+        Parameters
+        ----------
+        x
+            x coordinate of point
+        y
+            y coordinate of point
+
+        """
+        rect = self.get_rect()
+        coords = [rect[0], rect[1], rect[2] + rect[0], rect[3] + rect[1]]
+        return coords[0] < x < coords[2] and coords[1] < y < coords[3]
+
     def __iter__(self):
         """Iterate over the line."""
         for text in self.text_list:
@@ -611,7 +652,7 @@ class _TextWrap:
                                 new_text_segment = ()
                             self.remaining_segments[text_id] = segment
                             segment = ""
-                        
+
                         if new_text_segment:
                             text_id = new_text_segment[0]
                             segment = new_text_segment[1]
@@ -696,12 +737,45 @@ class _TextWrap:
 
     def scroll_lines(self, num_lines):
         """Scroll a given number of lines."""
-        self.line_num += num_lines
-        self.line_num = max(0, self.line_num)
-        self.line_num = min(len(self.lines) - 1, self.line_num)
-        # NOTE: Currently only allows scrolling down as many lines as are on screen
-        self.calculate_height()
-        _mark_dirty()
+        with self.text_lock:
+            self.line_num += num_lines
+            self.line_num = max(0, self.line_num)
+            self.line_num = min(len(self.lines) - 1, self.line_num)
+            # NOTE: Currently only allows scrolling down as many lines as are on screen
+            self.calculate_height()
+            _mark_dirty()
+
+    def scroll_drag(self, original_pos, current_pos):
+        """Scroll based on mouse movement."""
+        line1 = None
+        line2 = None
+        for num, line in enumerate(self.get_lines()):
+            if isinstance(line1, type(None)) and line.within_line(*original_pos):
+                line1 = num
+            elif isinstance(line2, type(None)) and line.within_line(*current_pos):
+                line2 = num
+            if not isinstance(line1, type(None)) and not isinstance(line2, type(None)):
+                break
+
+        if not isinstance(line1, type(None)) and isinstance(line2, type(None)):
+            # Check if dragging last line down
+            line_rect = tuple(self.get_lines())[line1].get_rect()
+            bottom = line_rect[1] + line_rect[3]
+            dist_below = bottom - current_pos[1]
+            if dist_below < 0 and self.line_num > 0:
+                next_line = self.lines[self.line_num - 1]
+                next_height = next_line.get_rect()[3]
+                if abs(dist_below) >= next_height / 2:
+                    self.scroll_lines(-1)
+                    print("Below")
+                    return True
+
+        elif not isinstance(line1, type(None)) and not isinstance(line2, type(None)):
+            lines_to_scroll = line1 - line2
+            self.scroll_lines(lines_to_scroll)
+            return True
+
+        return False
 
     def clear_all_text(self):
         """Clear all text that has been added to the box."""
@@ -795,6 +869,7 @@ class TextBox:
             The width of the display
         height
             The height of the display
+
         """
         rect = self._get_rect(width, height)
         coords = [rect[0], rect[1], rect[2] + rect[0], rect[3] + rect[1]]
