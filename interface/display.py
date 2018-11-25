@@ -638,7 +638,7 @@ class _TextWrap:
                         self.remaining_segments[text_id] = segment
                         del line.text_segments[text_id]
 
-                if self.current_height + line.height > self.pos[3]:
+                if self.current_height > self.pos[3]:
                     if new_text_segment or line.text_segments:
 
                         # Move line and new segments into remaining segments
@@ -725,14 +725,24 @@ class _TextWrap:
             self.new_text_list.extend(text_list)
         _mark_dirty()
 
-    def get_lines(self):
+    def _get_lines(self):
         """Return a deque of the current lines from scroll."""
         return islice(self.lines, self.line_num, None)
+
+    def _get_final_line_num(self):
+        """Get the last line num which fits on screen."""
+        height = 0
+        num = 0
+        for num, line in enumerate(self._get_lines()):
+            height += line.height
+            if height > self.pos[3]:
+                return num - 1 + self.line_num
+        return num + self.line_num
 
     def calculate_height(self):
         """Reset the current height."""
         self.current_height = 0
-        for line in self.get_lines():
+        for line in self._get_lines():
             self.current_height += line.height
 
     def scroll_lines(self, num_lines):
@@ -747,34 +757,28 @@ class _TextWrap:
 
     def scroll_drag(self, original_pos, current_pos):
         """Scroll based on mouse movement."""
-        line1 = None
-        line2 = None
-        for num, line in enumerate(self.get_lines()):
-            if isinstance(line1, type(None)) and line.within_line(*original_pos):
-                line1 = num
-            elif isinstance(line2, type(None)) and line.within_line(*current_pos):
-                line2 = num
-            if not isinstance(line1, type(None)) and not isinstance(line2, type(None)):
-                break
 
-        if not isinstance(line1, type(None)) and isinstance(line2, type(None)):
-            # Check if dragging last line down
-            line_rect = tuple(self.get_lines())[line1].get_rect()
-            bottom = line_rect[1] + line_rect[3]
-            dist_below = bottom - current_pos[1]
-            if dist_below < 0 and self.line_num > 0:
-                next_line = self.lines[self.line_num - 1]
-                next_height = next_line.get_rect()[3]
-                if abs(dist_below) >= next_height / 2:
-                    self.scroll_lines(-1)
-                    print("Below")
-                    return True
+        y_dist = current_pos[1] - original_pos[1]
+        bottom_line_num = self._get_final_line_num() + 1
+        print(len(self.lines), bottom_line_num, y_dist)
+        if y_dist > 0 and self.line_num > 0:
+            # Check if dragging down
+            next_line = self.lines[self.line_num - 1]
+        elif y_dist < 0 and len(self.lines) > bottom_line_num:
+            # Check if dragging up
+            next_line = self.lines[bottom_line_num]
+        elif y_dist < 0 and bottom_line_num == len(self.lines):
+            # Last line is on screen, use its height to calculate drag threshold
+            next_line = self.lines[bottom_line_num - 1]
+        else:
+            return False
 
-        elif not isinstance(line1, type(None)) and not isinstance(line2, type(None)):
-            lines_to_scroll = line1 - line2
-            self.scroll_lines(lines_to_scroll)
+        next_height = next_line.get_rect()[3]
+        if abs(y_dist) >= next_height:
+            line_amount = -(y_dist//abs(y_dist))  # Convert to 1/-1
+            self.scroll_lines(line_amount)
             return True
-
+        
         return False
 
     def clear_all_text(self):
@@ -794,9 +798,9 @@ class _TextWrap:
             self._wrap_new_lines()
 
             line_y = self.pos[1]
-            for line in self.get_lines():
+            for line in self._get_lines():
+                line.set_pos((self.pos[0], line_y))
                 if line.height + line_y <= self.pos[1] + self.pos[3]:
-                    line.set_pos((self.pos[0], line_y))
                     line.render(display)
                     line_y += line.height
                 else:
