@@ -6,6 +6,7 @@ from collections import deque
 from threading import Lock
 from typing import Deque, Iterable, List, Optional, Set, Tuple
 from itertools import islice
+import time
 
 import pygame
 
@@ -37,8 +38,11 @@ DIRTY = False
 font_objects = {}
 FONT_LOCK = Lock()
 
-SCROLL_AMOUNT = 1
+SCROLL_AMOUNT = 2
+DRAG_DECELERATION = 0.0001
+DRAG_FACTOR = 9
 mouse_down = None
+mouse_time = None
 
 
 def _mark_dirty():
@@ -48,9 +52,32 @@ def _mark_dirty():
     DIRTY = True
 
 
+def _coast_scrolls():
+    """Find textboxes which have coasting scrolls and perform scroll."""
+    global DIRTY
+
+    for box in TEXTBOXES:
+        wrap = box.text_wrap
+        if wrap.drag_speed != 0:
+            current_time = get_time()
+            time_diff = current_time - wrap.drag_time
+            line_amount = int(wrap.drag_speed * time_diff)
+            wrap.drag_time = current_time
+            if wrap.drag_speed < 0:
+                wrap.drag_speed += DRAG_DECELERATION * time_diff
+                wrap.drag_speed = min(0, wrap.drag_speed)
+            elif wrap.drag_speed > 0:
+                wrap.drag_speed -= DRAG_DECELERATION * time_diff
+                wrap.drag_speed = max(0, wrap.drag_speed)
+            if line_amount:
+                wrap.scroll_lines(line_amount)
+
+
 def render(display: pygame.Surface, fill_color: Iterable[int] = None):
     """Render every textbox if DIRTY."""
     global DIRTY
+
+    _coast_scrolls()
 
     if DIRTY:
         if not isinstance(fill_color, type(None)):
@@ -59,6 +86,11 @@ def render(display: pygame.Surface, fill_color: Iterable[int] = None):
             for textbox in TEXTBOXES:
                 textbox.render(display)
         DIRTY = False
+
+
+def get_time():
+    """Return the current time in millis."""
+    return time.time() * 1000
 
 
 def _rewrap():
@@ -84,7 +116,7 @@ def check_events(
     display: pygame.Surface, events: Iterable[pygame.event.Event]
 ) -> pygame.Surface:
     """Check pygame display events and execute accordingly."""
-    global RUNNING, mouse_down
+    global RUNNING, mouse_down, mouse_time
 
     for event in events:
         if event.type == pygame.QUIT:
@@ -105,6 +137,7 @@ def check_events(
             elif event.button == 1:
                 # Click
                 mouse_down = event.dict["pos"]
+                mouse_time = get_time()
         elif event.type == pygame.MOUSEBUTTONUP:
             if event.button == 1:
                 # Release
@@ -591,6 +624,9 @@ class _TextWrap:
         self.line_num = 0
         self.remaining_segments = {}
 
+        self.drag_speed = 0
+        self.drag_time = None
+
     def _next_line(self):
         """Get the next line to be filled."""
         if self.lines:
@@ -775,10 +811,12 @@ class _TextWrap:
 
         next_height = next_line.get_rect()[3]
         if abs(y_dist) >= next_height:
-            line_amount = -(y_dist//abs(y_dist))  # Convert to 1/-1
+            line_amount = -(y_dist // abs(y_dist))  # Convert to 1/-1
+            self.drag_speed = (line_amount / (get_time() - mouse_time)) * DRAG_FACTOR
+            self.drag_time = get_time()
             self.scroll_lines(line_amount)
             return True
-        
+
         return False
 
     def clear_all_text(self):
