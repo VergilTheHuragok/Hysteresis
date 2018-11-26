@@ -812,7 +812,9 @@ class _TextWrap:
         next_height = next_line.get_rect()[3]
         if abs(y_dist) >= next_height:
             line_amount = -(y_dist // abs(y_dist))  # Convert to 1/-1
-            self.drag_speed = (line_amount / (get_time() - mouse_time)) * DRAG_FACTOR
+            time_diff = get_time() - mouse_time
+            if time_diff:
+                self.drag_speed = (line_amount / time_diff) * DRAG_FACTOR
             self.drag_time = get_time()
             self.scroll_lines(line_amount)
             return True
