@@ -41,6 +41,7 @@ FONT_LOCK = Lock()
 SCROLL_AMOUNT = 1
 DRAG_DECELERATION = 35
 DRAG_FACTOR = 1
+DRAG_DEADZONE = 20
 mouse_down = None
 mouse_time = None
 
@@ -58,7 +59,10 @@ def _coast_scrolls():
     if isinstance(mouse_down, type(None)):
         for box in TEXTBOXES:
             wrap = box.text_wrap
-            if wrap.drag_speed:
+            if wrap.drag_speed and (
+                abs(wrap.drag_speed) > DRAG_DEADZONE or wrap.drags_to_go
+            ):
+                # Only coast if already are or above deadzone
                 current_time = get_time()
                 time_diff = current_time - wrap.drag_time
                 wrap.drags_to_go += wrap.drag_speed * time_diff
@@ -74,7 +78,8 @@ def _coast_scrolls():
                     wrap.scroll_lines(drag)
                     wrap.drags_to_go %= int(wrap.drags_to_go)
             else:
-                wrap.drag_speed = 0
+                # When speed reaches zero, clear remaining coast
+                wrap.drags_to_go = 0
 
 
 def render(display: pygame.Surface, fill_color: Iterable[int] = None):
