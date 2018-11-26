@@ -34,4 +34,4 @@ def add_text():
 while interface.start.get_running():
     add_text()
 
-    sleep(.1)
+    sleep(3)

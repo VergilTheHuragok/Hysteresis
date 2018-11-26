@@ -569,6 +569,8 @@ class _Line:
 
     def get_rect(self):
         """Get the bounding rect for this line."""
+        if isinstance(self.pos, type(None)):
+            raise Exception("Line not yet rendered.")
         return [*self.pos, self.width, self.height]
 
     def within_line(self, x: int, y) -> bool:
@@ -613,7 +615,6 @@ class _Line:
 class _TextWrap:
     """Store wrapped text and handle wrapping."""
 
-    # TODO: Allow lock at bottom
     # TODO: Add hover word support at display level
     #   Easiest way to ensure hover text stays with correct words
     # TODO: Store text older than a given num of lines in a file
@@ -690,7 +691,7 @@ class _TextWrap:
                         self.remaining_segments[text_id] = segment
                         del line.text_segments[text_id]
 
-                if self.current_height > self.pos[3]:
+                if self.current_height + line.height > self.pos[3]:
                     if new_text_segment or line.text_segments:
 
                         # Move line and new segments into remaining segments
@@ -832,20 +833,16 @@ class _TextWrap:
         """Scroll based on mouse movement."""
 
         y_dist = current_pos[1] - original_pos[1]
-        bottom_line_num = self._get_final_line_num() + 1
         if y_dist > 0 and self.line_num > 0:
             # Check if dragging down
             next_line = self.lines[self.line_num - 1]
-        elif y_dist < 0 and len(self.lines) > bottom_line_num:
+        elif y_dist < 0:
             # Check if dragging up
-            next_line = self.lines[bottom_line_num]
-        elif y_dist < 0 and bottom_line_num == len(self.lines):
-            # Last line is on screen, use its height to calculate drag threshold
-            next_line = self.lines[bottom_line_num - 1]
+            next_line = self.lines[self.line_num]
         else:
             return False
 
-        next_height = next_line.get_rect()[3]
+        next_height = next_line.height
         if abs(y_dist) >= next_height:
             line_amount = -(y_dist // abs(y_dist))  # Convert to 1/-1
             self.dragged_lines += line_amount
@@ -866,10 +863,14 @@ class _TextWrap:
 
     def render(self, display: pygame.Surface, pos: List[int]):
         """Render the lines of text."""
+
+
         with self.text_lock:
             self.pos = pos
-            at_bottom = self.at_bottom()
+            at_bottom = self.at_bottom() and self.lines
             lines_added = self._wrap_new_lines()
+
+        # BUG: When locked at bottom, doesn't render lines that are actually on screen until scroll
 
         to_scroll = len(self.lines) - self.line_num - 1
         if to_scroll < 0:
@@ -880,11 +881,13 @@ class _TextWrap:
             # Lock scroll to bottom
             self.scroll_lines(lines_added - 1)
 
+        self._wrap_new_lines()
+
         with self.text_lock:
             line_y = self.pos[1]
             for line in self._get_lines():
-                line.set_pos((self.pos[0], line_y))
                 if line.height + line_y <= self.pos[1] + self.pos[3]:
+                    line.set_pos((self.pos[0], line_y))
                     line.render(display)
                     line_y += line.height
                 else:
