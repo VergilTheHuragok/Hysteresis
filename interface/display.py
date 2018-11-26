@@ -613,6 +613,7 @@ class _Line:
 class _TextWrap:
     """Store wrapped text and handle wrapping."""
 
+    # TODO: Allow lock at bottom
     # TODO: Add hover word support at display level
     #   Easiest way to ensure hover text stays with correct words
     # TODO: Store text older than a given num of lines in a file
@@ -659,6 +660,8 @@ class _TextWrap:
         def within_height():
             """Check if the current wrapped lines are shorter than height of box."""
             return self.current_height < self.pos[3]
+
+        lines_added = 0
 
         if text_needs_wrapped() and within_height():
             assert not isinstance(self.pos, type(None))
@@ -718,6 +721,7 @@ class _TextWrap:
                 self.wrapped_text_list.extend(added_text)
                 self._purge_segments([self.wrapped_text_list], False)
                 self.lines.append(line)
+                lines_added += 1
                 if len(self.lines) >= self.line_num:
                     self.current_height += line.height
 
@@ -729,6 +733,7 @@ class _TextWrap:
                         text_id = new_text_segment[0]
                         text_segment = new_text_segment[1]
                         line.text_segments[text_id] = text_segment
+        return lines_added
 
     def _purge_segments(self, lists=None, reset_segment=True):
         """Clear split segments."""
@@ -801,8 +806,6 @@ class _TextWrap:
         with self.text_lock:
             self.line_num += num_lines
             self.line_num = max(0, self.line_num)
-            self.line_num = min(len(self.lines) - 1, self.line_num)
-            # NOTE: Currently only allows scrolling down as many lines as are on screen
             self.calculate_height()
             _mark_dirty()
 
@@ -820,6 +823,10 @@ class _TextWrap:
             self.drag_speed = (self.dragged_lines / time_diff) * DRAG_FACTOR
         self.drag_time = get_time()
         self.dragged_lines = 0
+
+    def at_bottom(self):
+        """Check if last line is on screen."""
+        return len(self.lines) == self._get_final_line_num() + 1
 
     def scroll_drag(self, original_pos, current_pos):
         """Scroll based on mouse movement."""
@@ -861,8 +868,19 @@ class _TextWrap:
         """Render the lines of text."""
         with self.text_lock:
             self.pos = pos
-            self._wrap_new_lines()
+            at_bottom = self.at_bottom()
+            lines_added = self._wrap_new_lines()
 
+        to_scroll = len(self.lines) - self.line_num - 1
+        if to_scroll < 0:
+            # Ensure we don't scroll past the last line
+            self.scroll_lines(to_scroll)
+
+        if at_bottom and lines_added:
+            # Lock scroll to bottom
+            self.scroll_lines(lines_added - 1)
+
+        with self.text_lock:
             line_y = self.pos[1]
             for line in self._get_lines():
                 line.set_pos((self.pos[0], line_y))
