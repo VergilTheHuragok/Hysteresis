@@ -864,13 +864,10 @@ class _TextWrap:
     def render(self, display: pygame.Surface, pos: List[int]):
         """Render the lines of text."""
 
-
         with self.text_lock:
             self.pos = pos
             at_bottom = self.at_bottom() and self.lines
             lines_added = self._wrap_new_lines()
-
-        # BUG: When locked at bottom, doesn't render lines that are actually on screen until scroll
 
         to_scroll = len(self.lines) - self.line_num - 1
         if to_scroll < 0:
