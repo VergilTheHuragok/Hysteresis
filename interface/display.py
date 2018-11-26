@@ -38,9 +38,9 @@ DIRTY = False
 font_objects = {}
 FONT_LOCK = Lock()
 
-SCROLL_AMOUNT = 2
-DRAG_DECELERATION = 0.0001
-DRAG_FACTOR = 9
+SCROLL_AMOUNT = 1
+DRAG_DECELERATION = 35
+DRAG_FACTOR = 1
 mouse_down = None
 mouse_time = None
 
@@ -54,23 +54,27 @@ def _mark_dirty():
 
 def _coast_scrolls():
     """Find textboxes which have coasting scrolls and perform scroll."""
-    global DIRTY
 
-    for box in TEXTBOXES:
-        wrap = box.text_wrap
-        if wrap.drag_speed != 0:
-            current_time = get_time()
-            time_diff = current_time - wrap.drag_time
-            line_amount = int(wrap.drag_speed * time_diff)
-            wrap.drag_time = current_time
-            if wrap.drag_speed < 0:
-                wrap.drag_speed += DRAG_DECELERATION * time_diff
-                wrap.drag_speed = min(0, wrap.drag_speed)
-            elif wrap.drag_speed > 0:
-                wrap.drag_speed -= DRAG_DECELERATION * time_diff
-                wrap.drag_speed = max(0, wrap.drag_speed)
-            if line_amount:
-                wrap.scroll_lines(line_amount)
+    if isinstance(mouse_down, type(None)):
+        for box in TEXTBOXES:
+            wrap = box.text_wrap
+            if wrap.drag_speed:
+                current_time = get_time()
+                time_diff = current_time - wrap.drag_time
+                wrap.drags_to_go += wrap.drag_speed * time_diff
+                wrap.drag_time = current_time
+                if wrap.drag_speed < 0:
+                    wrap.drag_speed += DRAG_DECELERATION * time_diff
+                    wrap.drag_speed = min(0, wrap.drag_speed)
+                elif wrap.drag_speed > 0:
+                    wrap.drag_speed -= DRAG_DECELERATION * time_diff
+                    wrap.drag_speed = max(0, wrap.drag_speed)
+                if abs(wrap.drags_to_go) > 1:
+                    drag = int(wrap.drags_to_go)
+                    wrap.scroll_lines(drag)
+                    wrap.drags_to_go %= int(wrap.drags_to_go)
+            else:
+                wrap.drag_speed = 0
 
 
 def render(display: pygame.Surface, fill_color: Iterable[int] = None):
@@ -90,7 +94,7 @@ def render(display: pygame.Surface, fill_color: Iterable[int] = None):
 
 def get_time():
     """Return the current time in millis."""
-    return time.time() * 1000
+    return time.time()
 
 
 def _rewrap():
@@ -142,6 +146,8 @@ def check_events(
             if event.button == 1:
                 # Release
                 mouse_down = None
+                for box in TEXTBOXES:
+                    box.text_wrap.end_drag()
         elif event.type == pygame.MOUSEMOTION:
             # Drag
             if mouse_down:
@@ -626,6 +632,8 @@ class _TextWrap:
 
         self.drag_speed = 0
         self.drag_time = None
+        self.dragged_lines = 0
+        self.drags_to_go = 0
 
     def _next_line(self):
         """Get the next line to be filled."""
@@ -745,6 +753,7 @@ class _TextWrap:
 
     def mark_wrap(self):
         """Set to be re-wrapped."""
+        self._stop_coast()
         with self.text_lock:
             self.lines.clear()
             self.current_height = 0
@@ -792,6 +801,21 @@ class _TextWrap:
             self.calculate_height()
             _mark_dirty()
 
+    def _stop_coast(self):
+        """Stop coasting."""
+        self.drag_speed = 0
+        self.drag_time = None
+        self.dragged_lines = 0
+        self.drags_to_go = 0
+
+    def end_drag(self):
+        """Calculate and set drag speed."""
+        time_diff = get_time() - mouse_time
+        if time_diff:
+            self.drag_speed = (self.dragged_lines / time_diff) * DRAG_FACTOR
+        self.drag_time = get_time()
+        self.dragged_lines = 0
+
     def scroll_drag(self, original_pos, current_pos):
         """Scroll based on mouse movement."""
 
@@ -812,10 +836,7 @@ class _TextWrap:
         next_height = next_line.get_rect()[3]
         if abs(y_dist) >= next_height:
             line_amount = -(y_dist // abs(y_dist))  # Convert to 1/-1
-            time_diff = get_time() - mouse_time
-            if time_diff:
-                self.drag_speed = (line_amount / time_diff) * DRAG_FACTOR
-            self.drag_time = get_time()
+            self.dragged_lines += line_amount
             self.scroll_lines(line_amount)
             return True
 
