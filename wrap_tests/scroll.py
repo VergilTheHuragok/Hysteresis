@@ -17,7 +17,8 @@ font1 = Font("Courier New", 20, True, True)
 
 y = TextBox([0.1, 0.1, 0.9, 0.9])
 
-y.text_wrap.add_text([Text(get_text(), font1)])
+for line in get_text().split("\n"):
+    y.text_wrap.add_text([Text(line, font1, new_line=True)])
 scroll = []
 
 
@@ -34,10 +35,5 @@ while interface.start.get_running():
             amount = random.randint(-5, 5)
         amount = int(amount)
         new_thread()
-        mult = 1
-        if amount < 0:
-            mult = -1
-        for i in range(0, abs(amount)):
-            y.text_wrap.scroll_lines(mult)
-            sleep(.1)
+        y.text_wrap.scroll_lines(amount)
     sleep(.01)
