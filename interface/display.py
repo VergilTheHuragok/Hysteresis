@@ -650,7 +650,8 @@ class _TextWrap:
                             if new_text_segment and text_id == new_text_segment[0]:
                                 segment += new_text_segment[1]
                                 new_text_segment = ()
-                            self.remaining_segments[text_id] = segment
+                            if segment:
+                                self.remaining_segments[text_id] = segment
                             segment = ""
 
                         if new_text_segment:
@@ -760,7 +761,6 @@ class _TextWrap:
 
         y_dist = current_pos[1] - original_pos[1]
         bottom_line_num = self._get_final_line_num() + 1
-        print(len(self.lines), bottom_line_num, y_dist)
         if y_dist > 0 and self.line_num > 0:
             # Check if dragging down
             next_line = self.lines[self.line_num - 1]
