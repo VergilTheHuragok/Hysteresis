@@ -148,7 +148,7 @@ def check_events(
                 mouse_down = event.dict["pos"]
                 mouse_time = get_time()
         elif event.type == pygame.MOUSEBUTTONUP:
-            if event.button == 1:
+            if event.button == 1 and not isinstance(mouse_time, type(None)):
                 # Release
                 mouse_down = None
                 for box in TEXTBOXES:
