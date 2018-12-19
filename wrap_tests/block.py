@@ -46,7 +46,7 @@ def start():
 
     font1 = Font("Courier New", 20, True, True)
 
-    text = get_text()
+    text = get_text().replace("\n", " ")
 
     y = TextBox([0.1, 0.1, 0.9, 0.9])
     # for line in text_from_html(text).split("\n"):

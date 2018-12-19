@@ -20,6 +20,7 @@ TEXTBOXES = []
 
 DEFAULT_BORDER_WIDTH = 1
 DEFAULT_BORDER_COLOR = (255, 255, 255)
+DEFAULT_INDICATOR_COLOR = (125, 125, 255)
 DEFAULT_TEXT_COLOR = (255, 255, 255)
 
 # TextWrap Constants
@@ -642,6 +643,8 @@ class _TextWrap:
         self.dragged_lines = 0
         self.drags_to_go = 0
 
+        self.was_at_bottom = False
+
     def _next_line(self):
         """Get the next line to be filled."""
         if self.lines:
@@ -651,7 +654,7 @@ class _TextWrap:
             line = _Line()
         return line
 
-    def _wrap_new_lines(self):
+    def _wrap_new_lines(self, all_=False):
         """Wrap text into lines."""
 
         def text_needs_wrapped():
@@ -664,7 +667,7 @@ class _TextWrap:
 
         lines_added = 0
 
-        if text_needs_wrapped() and within_height():
+        if text_needs_wrapped() and (all_ or within_height()):
             assert not isinstance(self.pos, type(None))
 
             box_width = self.pos[2]
@@ -691,7 +694,7 @@ class _TextWrap:
                         self.remaining_segments[text_id] = segment
                         del line.text_segments[text_id]
 
-                if self.current_height + line.height > self.pos[3]:
+                if not all_ and self.current_height + line.height > self.pos[3]:
                     if new_text_segment or line.text_segments:
 
                         # Move line and new segments into remaining segments
@@ -827,7 +830,9 @@ class _TextWrap:
 
     def at_bottom(self):
         """Check if last line is on screen."""
-        return len(self.lines) == self._get_final_line_num() + 1
+        if self.new_text_list:
+            return False
+        return len(self.lines) <= self._get_final_line_num() + 1
 
     def scroll_drag(self, original_pos, current_pos):
         """Scroll based on mouse movement."""
@@ -866,19 +871,16 @@ class _TextWrap:
 
         with self.text_lock:
             self.pos = pos
-            at_bottom = self.at_bottom() and self.lines
-            lines_added = self._wrap_new_lines()
+            lines_added = self._wrap_new_lines(self.was_at_bottom)
 
         to_scroll = len(self.lines) - self.line_num - 1
         if to_scroll < 0:
             # Ensure we don't scroll past the last line
             self.scroll_lines(to_scroll)
 
-        if at_bottom and lines_added:
+        if self.was_at_bottom and lines_added:
             # Lock scroll to bottom
             self.scroll_lines(lines_added - 1)
-
-        self._wrap_new_lines()
 
         with self.text_lock:
             line_y = self.pos[1]
@@ -889,6 +891,9 @@ class _TextWrap:
                     line_y += line.height
                 else:
                     break
+
+        self.was_at_bottom = self.at_bottom()
+        return self.was_at_bottom, self.line_num == 0
 
 
 class TextBox:
@@ -906,6 +911,8 @@ class TextBox:
         self.pins = pins  # TODO: Support fixed-width/height
         self.border_width = DEFAULT_BORDER_WIDTH
         self.border_color = DEFAULT_BORDER_COLOR
+
+        self.indicator_color = DEFAULT_INDICATOR_COLOR
 
         self.text_wrap = _TextWrap()
 
@@ -946,7 +953,7 @@ class TextBox:
 
     def within_box(self, x: int, y: int, width: int, height: int) -> bool:
         """Check if given coordinates are within the box.
-        
+
         Parameters
         ----------
         x
@@ -970,10 +977,31 @@ class TextBox:
         pos = self._get_rect(width, height)
         pygame.draw.rect(display, self.border_color, pos, self.border_width)
 
+    def _draw_indicator(self, display: pygame.Surface, at_bottom, at_top):
+        """Draw the indicator to show the box is not at the bottom."""
+        width = display.get_width()
+        height = display.get_height()
+        pos = self._get_rect(width, height)
+
+        if not at_bottom:
+            start_pos = (pos[0], pos[1] + pos[3] - 1)
+            end_pos = (pos[0] + pos[2] - 1, pos[1] + pos[3] - 1)
+            pygame.draw.line(
+                display, self.indicator_color, start_pos, end_pos, self.border_width + 2
+            )
+        
+        if not at_top:
+            start_pos = (pos[0], pos[1])
+            end_pos = (pos[0] + pos[2] - 1, pos[1])
+            pygame.draw.line(
+                display, self.indicator_color, start_pos, end_pos, self.border_width + 2
+            )
+
     def render(self, display: pygame.Surface):
         """Draw the textbox to the given display."""
         self._draw_box(display)
-        self.text_wrap.render(display, self.pos)
+        at_bottom, at_top = self.text_wrap.render(display, self.pos)
+        self._draw_indicator(display, at_bottom, at_top)
 
 
 class InputBox(TextBox):

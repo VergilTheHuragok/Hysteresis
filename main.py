@@ -1,4 +1,4 @@
 """Start the game."""
-from wrap_tests import random_chars
+from wrap_tests import block
 
-# BUG: Lines don't always stick at bottom
+block.start()
