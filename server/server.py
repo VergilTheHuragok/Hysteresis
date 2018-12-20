@@ -25,7 +25,5 @@ while True:
     if updated and not get_running():
         updated = False
         close()
-        subprocess.Popen(
-            ["python", "server.py"], creationflags=subprocess.CREATE_NEW_CONSOLE
-        )
+        subprocess.Popen(["python", "server.py"])
         break

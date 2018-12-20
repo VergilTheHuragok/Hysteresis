@@ -1,34 +1,28 @@
 import subprocess
 
-# path = "/usr/local/bin/server/Hysteresis"
 path = None
+
+
+def get_old_version():
+    old_version = (
+        subprocess.run(
+            ["git", "rev-parse", "master"], stdout=subprocess.PIPE, cwd=path
+        )
+        .stdout.decode("utf-8")
+        .strip("\n")
+    )
+    return old_version
 
 
 def get_current_version():
     current_version = (
         subprocess.run(
-            ["git", "rev-parse", "origin/master"], stdout=subprocess.PIPE, cwd=path
+            ["git", "ls-remote", "https://github.com/singofwalls/Hysteresis.git"], stdout=subprocess.PIPE, cwd=path
         )
         .stdout.decode("utf-8")
-        .strip("\n")
+        .strip("\n").split("\t")[0]
     )
     return current_version
-
-
-def get_old_version():
-    def _update_version(version):
-        version_file = open("version", "w")
-        version_file.write(version)
-        version_file.close()
-
-    try:
-        version_file = open("version", "r")
-        version = version_file.read()
-        version_file.close()
-        return version
-    except FileNotFoundError:
-        _update_version(get_current_version())
-        return None
 
 def update():
     if get_current_version() != get_old_version():
