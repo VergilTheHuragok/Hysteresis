@@ -17,6 +17,8 @@ def get_running():
 
 updated = False
 
+open("UPDATED", "w").close()
+
 while True:
     sleep(1)
 
