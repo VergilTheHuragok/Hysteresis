@@ -1,14 +1,11 @@
 import subprocess
-from time import sleep
 
 path = None
 
 
 def get_old_version():
     old_version = (
-        subprocess.run(
-            ["git", "rev-parse", "master"], stdout=subprocess.PIPE, cwd=path
-        )
+        subprocess.run(["git", "rev-parse", "server"], stdout=subprocess.PIPE, cwd=path)
         .stdout.decode("utf-8")
         .strip("\n")
     )
@@ -18,12 +15,13 @@ def get_old_version():
 def get_current_version():
     current_version = (
         subprocess.run(
-            ["git", "ls-remote", "https://github.com/singofwalls/Hysteresis.git"], stdout=subprocess.PIPE, cwd=path
+            ["git", "rev-parse", "origin/server"], stdout=subprocess.PIPE, cwd=path
         )
         .stdout.decode("utf-8")
-        .strip("\n").split("\t")[0]
+        .strip("\n")
     )
     return current_version
+
 
 def update():
     if get_current_version() != get_old_version():

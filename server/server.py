@@ -1,5 +1,4 @@
 from time import sleep
-import os.path
 import subprocess
 
 from update_server import update
@@ -25,5 +24,8 @@ while True:
     if updated and not get_running():
         updated = False
         close()
-        subprocess.Popen(["/etc/python3.7/python", "/home/reece/server/Hysteresis/server/server.py"], cwd="/home/reece/server/Hysteresis/server/")
+        subprocess.Popen(
+            ["/etc/python3.7/python", "/home/reece/server/Hysteresis/server/server.py"],
+            cwd="/home/reece/server/Hysteresis/server/",
+        )
         break
