@@ -17,7 +17,7 @@ def get_running():
 
 updated = False
 
-open("UPDATED", "w").close()
+open("UPDATED2", "w").close()
 
 while True:
     sleep(1)
@@ -27,5 +27,5 @@ while True:
     if updated and not get_running():
         updated = False
         close()
-        subprocess.Popen(["python", "server.py"])
+        subprocess.Popen(["/etc/python3.7/python", "/home/reece/server/Hysteresis/server/server.py"], cwd="/home/reece/server/Hysteresis/server/")
         break
