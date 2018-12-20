@@ -1,4 +1,5 @@
 import subprocess
+from time import sleep
 
 path = None
 
@@ -27,6 +28,6 @@ def get_current_version():
 def update():
     if get_current_version() != get_old_version():
         # Not latest version
-        subprocess.Popen(["git", "pull", "origin", "master"], cwd=path)
+        subprocess.run(["git", "pull", "origin", "master"], cwd=path)
         return True
     return False
