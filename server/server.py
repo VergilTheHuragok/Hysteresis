@@ -1,4 +1,4 @@
-from time import sleep
+from time import sleep, time
 import subprocess
 
 from update_server import update
@@ -17,11 +17,16 @@ def get_running():
 updated = False
 
 while True:
-    sleep(1)
+    sleep(5)
+
+    with open("/home/reece/update.txt", "a") as f:
+        f.write("checked " + str(time()))
 
     if not updated:
         updated = update()
     if updated and not get_running():
+        with open("/home/reece/update.txt", "a") as f:
+            f.write("updated " + str(time()))
         updated = False
         close()
         subprocess.Popen(
