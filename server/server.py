@@ -17,8 +17,6 @@ def get_running():
 
 updated = False
 
-open("UPDATED3", "w").close()
-
 while True:
     sleep(1)
 
