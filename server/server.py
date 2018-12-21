@@ -1,8 +1,9 @@
-from time import sleep, time
+from time import sleep, ctime
 import os
 import subprocess
 
 from update_server import update
+
 
 LOG_PATH = "/home/reece/server/log.txt"
 STOP_PATH = "/home/reece/server/STOP"
@@ -27,11 +28,11 @@ while True:
 
     if os.path.exists(STOP_PATH):
         with open(LOG_PATH, "a") as f:
-            f.write("stop " + str(time()) + "\n")
+            f.write("stop " + ctime() + "\n")
         break
 
     with open(LOG_PATH, "a") as f:
-        f.write("checked " + str(time()) + "\n")
+        f.write("checked " + ctime() + "\n")
 
     # Halve log if greater than 1000 lines
     lines = None
@@ -49,7 +50,7 @@ while True:
         updated = update()
     if updated and not get_running():
         with open(LOG_PATH, "a") as f:
-            f.write("updated " + str(time()) + "\n")
+            f.write("updated " + ctime() + "\n")
         updated = False
         close()
         subprocess.Popen([PYTHON_PATH, SERVER_PATH], cwd=SERVER_FOLDER)
