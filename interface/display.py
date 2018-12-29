@@ -16,7 +16,8 @@ RUNNING = True
 # Constants
 TICK = 0.01
 TEXTBOX_LOCK = Lock()
-TEXTBOXES = []
+textboxes = []
+active_box = None
 
 DEFAULT_BORDER_WIDTH = 1
 DEFAULT_BORDER_COLOR = (255, 255, 255)
@@ -43,8 +44,11 @@ SCROLL_AMOUNT = 1
 DRAG_DECELERATION = 35
 DRAG_FACTOR = 1
 DRAG_DEADZONE = 20
-mouse_down = None
-mouse_time = None
+
+button_presses = set()
+button_downs = set()
+mouse_presses = set()
+mouse_downs = {}
 
 
 def _mark_dirty():
@@ -57,8 +61,9 @@ def _mark_dirty():
 def _coast_scrolls():
     """Find textboxes which have coasting scrolls and perform scroll."""
 
-    if isinstance(mouse_down, type(None)):
-        for box in TEXTBOXES:
+    if 1 not in mouse_downs:
+        # Mouse not being pressed
+        for box in textboxes:
             wrap = box.text_wrap
             if wrap.drag_speed and (
                 abs(wrap.drag_speed) > DRAG_DEADZONE or wrap.drags_to_go
@@ -93,7 +98,7 @@ def render(display: pygame.Surface, fill_color: Iterable[int] = None):
         if not isinstance(fill_color, type(None)):
             display.fill(fill_color)
         with TEXTBOX_LOCK:
-            for textbox in TEXTBOXES:
+            for textbox in textboxes:
                 textbox.render(display)
         DIRTY = False
 
@@ -105,7 +110,7 @@ def get_time():
 
 def _rewrap():
     """Rewrap all textboxes."""
-    for textbox in TEXTBOXES:
+    for textbox in textboxes:
         textbox.text_wrap.mark_wrap()
 
 
@@ -122,47 +127,55 @@ def get_dims(display: pygame.Surface) -> Tuple[int]:
     return display.get_width(), display.get_height()
 
 
+def activate_box(box):
+    """Set a textbox to active."""
+    global active_box
+    active_box = box
+
+
+def tick_keys():
+    """Unset pressed keys."""
+    mouse_presses.clear()
+    button_presses.clear()
+
+
 def check_events(
     display: pygame.Surface, events: Iterable[pygame.event.Event]
 ) -> pygame.Surface:
     """Check pygame display events and execute accordingly."""
-    global RUNNING, mouse_down, mouse_time
+    global RUNNING
 
     for event in events:
         if event.type == pygame.QUIT:
             RUNNING = False
         elif event.type == pygame.VIDEORESIZE:
             display = _resize_display(event.dict["size"])
-        elif event.type == pygame.MOUSEBUTTONDOWN:
-            if event.button in [4, 5]:
-                # Mouse Scroll
-                pos = event.dict["pos"]
-                for box in TEXTBOXES:
-                    if box.within_box(*pos, *get_dims(display)):
-                        if event.button == 4:
-                            box.text_wrap.scroll_lines(-SCROLL_AMOUNT)
-                        else:
-                            box.text_wrap.scroll_lines(SCROLL_AMOUNT)
-                        break
-            elif event.button == 1:
-                # Click
-                mouse_down = event.dict["pos"]
-                mouse_time = get_time()
-        elif event.type == pygame.MOUSEBUTTONUP:
-            if event.button == 1 and not isinstance(mouse_time, type(None)):
-                # Release
-                mouse_down = None
-                for box in TEXTBOXES:
-                    box.text_wrap.end_drag()
-        elif event.type == pygame.MOUSEMOTION:
-            # Drag
-            if mouse_down:
-                for box in TEXTBOXES:
-                    if box.within_box(*mouse_down, *get_dims(display)):
-                        if box.text_wrap.scroll_drag(mouse_down, event.dict["pos"]):
-                            mouse_down = event.dict["pos"]
-                        break
 
+        elif event.type == pygame.MOUSEBUTTONDOWN:
+            mouse_downs[event.button] = [event.pos, get_time()]
+            mouse_presses.add(event.button)
+
+        elif event.type == pygame.MOUSEBUTTONUP:
+            # Release drag
+            if event.button == 1 and event.button in mouse_downs:
+                for box in textboxes:
+                    box.text_wrap.end_drag()
+            if event.button in mouse_downs:
+                del mouse_downs[event.button]
+
+        elif event.type == pygame.KEYDOWN:
+            button_presses.add(event.key)
+            button_downs.add(event.key)
+        elif event.type == pygame.KEYUP:
+            if event.key in button_downs:
+                button_downs.remove(event.key)
+
+        if "pos" in event.dict:
+            for box in textboxes:
+                if box.handle_event(event, display):
+                    break
+    # TODO: Handle mouse clicks/drags on a box-by-box basis.
+    # TODO: Get rid of mouse and button globals
     return display
 
 
@@ -556,14 +569,20 @@ class _Line:
 
         return added_text, following_text_segment
 
+    def _get_text_segment(self, text):
+        """Get the segment of a text object in this line."""
+        text_id = id(text)
+        if text_id in self.text_segments:
+            text_segment = self.text_segments[text_id]
+            return text_segment
+        return text.text_segment
+
     def render(self, display: pygame.Surface):
         """Render the line to the display."""
         text_x = 0
         for text in self.text_list:
-            text_id = id(text)
-            if text_id in self.text_segments:
-                text_segment = self.text_segments[text_id]
-                text.set_text_segment(text_segment)
+            text_segment = self._get_text_segment(text)
+            text.set_text_segment(text_segment)
             text.set_pos((self.pos[0] + text_x, self.pos[1]))
             text.render(display)
             text_x += text.get_size()[0]
@@ -822,7 +841,7 @@ class _TextWrap:
 
     def end_drag(self):
         """Calculate and set drag speed."""
-        time_diff = get_time() - mouse_time
+        time_diff = get_time() - mouse_downs[1][1]
         if time_diff:
             self.drag_speed = (self.dragged_lines / time_diff) * DRAG_FACTOR
         self.drag_time = get_time()
@@ -919,7 +938,7 @@ class TextBox:
         self.pos = None
 
         with TEXTBOX_LOCK:
-            TEXTBOXES.append(self)
+            textboxes.append(self)
 
     def _get_rect(self, width: int, height: int) -> List[int]:
         """Get coordinates based on self.pins and display resolution.
@@ -951,6 +970,33 @@ class TextBox:
 
         return self.pos
 
+    def handle_event(self, event, display):
+        """Handle pygame events such as scrolling."""
+
+        if not self.within_box(*event.pos, *get_dims(display)):
+            return False
+
+        activate_box(self)
+
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            if event.button in [4, 5]:
+                # Mouse Scroll
+                self.text_wrap._stop_coast()
+                if event.button == 4:
+                    self.text_wrap.scroll_lines(-SCROLL_AMOUNT)
+                else:
+                    self.text_wrap.scroll_lines(SCROLL_AMOUNT)
+            elif event.button == 1:
+                # Click
+                mouse_downs[1] = [event.pos, get_time()]
+        elif event.type == pygame.MOUSEMOTION:
+            # Drag
+            if 1 in mouse_downs:
+                if self.text_wrap.scroll_drag(mouse_downs[1][0], event.pos):
+                    mouse_downs[1][0] = event.pos
+
+        return True
+
     def within_box(self, x: int, y: int, width: int, height: int) -> bool:
         """Check if given coordinates are within the box.
 
@@ -969,6 +1015,15 @@ class TextBox:
         rect = self._get_rect(width, height)
         coords = [rect[0], rect[1], rect[2] + rect[0], rect[3] + rect[1]]
         return coords[0] < x < coords[2] and coords[1] < y < coords[3]
+
+    def get_box_string(self):
+        """Get all text in box as a string."""
+        string = ""
+        for text in self.text_wrap.wrapped_text_list:
+            string += text.all_text
+        for text in self.text_wrap.new_text_list:
+            string += text.all_text
+        return string
 
     def _draw_box(self, display: pygame.Surface):
         """Draw the outline of the textbox to the display."""
@@ -989,7 +1044,7 @@ class TextBox:
             pygame.draw.line(
                 display, self.indicator_color, start_pos, end_pos, self.border_width + 2
             )
-        
+
         if not at_top:
             start_pos = (pos[0], pos[1])
             end_pos = (pos[0] + pos[2] - 1, pos[1])
@@ -1007,9 +1062,9 @@ class TextBox:
 class InputBox(TextBox):
     """Allow text input and display said text."""
 
-    def __init__(self, display: pygame.Surface):
-        super().__init__(display)
-        # TODO: Allow use of cursor.
+    def __init__(self, pins: Iterable[int]):
+        super().__init__(pins)
+        # TODO: Store cursor as an index.
 
 
 if __name__ == "__main__":

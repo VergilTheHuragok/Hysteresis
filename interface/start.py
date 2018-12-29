@@ -3,10 +3,8 @@
 from threading import Thread
 from time import sleep
 
-from interface.display import render, RUNNING
+from interface.display import render
 import interface.display
-
-import interface.input
 
 import pygame
 
@@ -24,11 +22,12 @@ def _interface_loop():
         # Render display
         render(display, (0, 0, 0))
 
+        # Reset key presses
+        interface.display.tick_keys()
+
         # Handle events
         events = pygame.event.get()
         display = interface.display.check_events(display, events)
-
-        interface.input.check_events(events)
 
         pygame.display.flip()
         sleep(.01)
