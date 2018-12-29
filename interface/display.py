@@ -45,11 +45,6 @@ DRAG_DECELERATION = 35
 DRAG_FACTOR = 1
 DRAG_DEADZONE = 20
 
-button_presses = set()
-button_downs = set()
-mouse_presses = set()
-mouse_downs = {}
-
 
 def _mark_dirty():
     """Mark the display dirty (i.e. set to redraw)."""
@@ -61,31 +56,29 @@ def _mark_dirty():
 def _coast_scrolls():
     """Find textboxes which have coasting scrolls and perform scroll."""
 
-    if 1 not in mouse_downs:
-        # Mouse not being pressed
-        for box in textboxes:
-            wrap = box.text_wrap
-            if wrap.drag_speed and (
-                abs(wrap.drag_speed) > DRAG_DEADZONE or wrap.drags_to_go
-            ):
-                # Only coast if already are or above deadzone
-                current_time = get_time()
-                time_diff = current_time - wrap.drag_time
-                wrap.drags_to_go += wrap.drag_speed * time_diff
-                wrap.drag_time = current_time
-                if wrap.drag_speed < 0:
-                    wrap.drag_speed += DRAG_DECELERATION * time_diff
-                    wrap.drag_speed = min(0, wrap.drag_speed)
-                elif wrap.drag_speed > 0:
-                    wrap.drag_speed -= DRAG_DECELERATION * time_diff
-                    wrap.drag_speed = max(0, wrap.drag_speed)
-                if abs(wrap.drags_to_go) > 1:
-                    drag = int(wrap.drags_to_go)
-                    wrap.scroll_lines(drag)
-                    wrap.drags_to_go %= int(wrap.drags_to_go)
-            else:
-                # When speed reaches zero, clear remaining coast
-                wrap.drags_to_go = 0
+    for box in textboxes:
+        wrap = box.text_wrap
+        if wrap.drag_speed and (
+            abs(wrap.drag_speed) > DRAG_DEADZONE or wrap.drags_to_go
+        ):
+            # Only coast if already are or above deadzone
+            current_time = get_time()
+            time_diff = current_time - wrap.drag_end_time
+            wrap.drags_to_go += wrap.drag_speed * time_diff
+            wrap.drag_end_time = current_time
+            if wrap.drag_speed < 0:
+                wrap.drag_speed += DRAG_DECELERATION * time_diff
+                wrap.drag_speed = min(0, wrap.drag_speed)
+            elif wrap.drag_speed > 0:
+                wrap.drag_speed -= DRAG_DECELERATION * time_diff
+                wrap.drag_speed = max(0, wrap.drag_speed)
+            if abs(wrap.drags_to_go) > 1:
+                drag = int(wrap.drags_to_go)
+                wrap.scroll_lines(drag)
+                wrap.drags_to_go %= int(wrap.drags_to_go)
+        else:
+            # When speed reaches zero, clear remaining coast
+            wrap.drags_to_go = 0
 
 
 def render(display: pygame.Surface, fill_color: Iterable[int] = None):
@@ -133,12 +126,6 @@ def activate_box(box):
     active_box = box
 
 
-def tick_keys():
-    """Unset pressed keys."""
-    mouse_presses.clear()
-    button_presses.clear()
-
-
 def check_events(
     display: pygame.Surface, events: Iterable[pygame.event.Event]
 ) -> pygame.Surface:
@@ -151,30 +138,26 @@ def check_events(
         elif event.type == pygame.VIDEORESIZE:
             display = _resize_display(event.dict["size"])
 
-        elif event.type == pygame.MOUSEBUTTONDOWN:
-            mouse_downs[event.button] = [event.pos, get_time()]
-            mouse_presses.add(event.button)
+        # elif event.type == pygame.MOUSEBUTTONDOWN:
+        #     mouse_downs[event.button] = [event.pos, get_time()]
+        #     mouse_presses.add(event.button)
 
-        elif event.type == pygame.MOUSEBUTTONUP:
-            # Release drag
-            if event.button == 1 and event.button in mouse_downs:
-                for box in textboxes:
-                    box.text_wrap.end_drag()
-            if event.button in mouse_downs:
-                del mouse_downs[event.button]
-
-        elif event.type == pygame.KEYDOWN:
-            button_presses.add(event.key)
-            button_downs.add(event.key)
-        elif event.type == pygame.KEYUP:
-            if event.key in button_downs:
-                button_downs.remove(event.key)
+        # elif event.type == pygame.MOUSEBUTTONUP:
+        #     # Release drag
+        #     if event.button == 1 and event.button in mouse_downs:
+        #         for box in textboxes:
+        #             box.text_wrap.end_drag()
+        #     if event.button in mouse_downs:
+        #         del mouse_downs[event.button]
 
         if "pos" in event.dict:
             for box in textboxes:
                 if box.handle_event(event, display):
                     break
+        elif not isinstance(active_box, type(None)):
+            active_box.handle_event(event, display)
     # TODO: Handle mouse clicks/drags on a box-by-box basis.
+    #           Finish moving globals to oob
     # TODO: Get rid of mouse and button globals
     return display
 
@@ -658,11 +641,14 @@ class _TextWrap:
         self.remaining_segments = {}
 
         self.drag_speed = 0
-        self.drag_time = None
+        self.drag_start_time = None
+        self.drag_end_time = None
         self.dragged_lines = 0
         self.drags_to_go = 0
+        self.drag_start_pos = None
 
         self.was_at_bottom = False
+
 
     def _next_line(self):
         """Get the next line to be filled."""
@@ -835,16 +821,16 @@ class _TextWrap:
     def _stop_coast(self):
         """Stop coasting."""
         self.drag_speed = 0
-        self.drag_time = None
+        self.drag_end_time = None
         self.dragged_lines = 0
         self.drags_to_go = 0
 
     def end_drag(self):
         """Calculate and set drag speed."""
-        time_diff = get_time() - mouse_downs[1][1]
+        time_diff = get_time() - self.drag_start_time
         if time_diff:
             self.drag_speed = (self.dragged_lines / time_diff) * DRAG_FACTOR
-        self.drag_time = get_time()
+        self.drag_end_time = get_time()
         self.dragged_lines = 0
 
     def at_bottom(self):
@@ -973,7 +959,8 @@ class TextBox:
     def handle_event(self, event, display):
         """Handle pygame events such as scrolling."""
 
-        if not self.within_box(*event.pos, *get_dims(display)):
+        position_based = "pos" in event.dict
+        if position_based and not self.within_box(*event.pos, *get_dims(display)):
             return False
 
         activate_box(self)
@@ -988,14 +975,21 @@ class TextBox:
                     self.text_wrap.scroll_lines(SCROLL_AMOUNT)
             elif event.button == 1:
                 # Click
-                mouse_downs[1] = [event.pos, get_time()]
+                self.text_wrap.drag_start_time = get_time()
+                self.text_wrap.drag_start_pos = event.pos
         elif event.type == pygame.MOUSEMOTION:
             # Drag
-            if 1 in mouse_downs:
-                if self.text_wrap.scroll_drag(mouse_downs[1][0], event.pos):
-                    mouse_downs[1][0] = event.pos
+            if not isinstance(self.text_wrap.drag_start_time, type(None)):
+                if self.text_wrap.scroll_drag(self.text_wrap.drag_start_pos, event.pos):
+                    self.text_wrap.drag_start_pos = event.pos
+        elif event.type == pygame.MOUSEBUTTONUP:
+            if event.button == 1:
+                self.text_wrap.end_drag()
+                self.text_wrap.drag_start_pos = None
+                self.text_wrap.drag_start_time = None
 
-        return True
+        # Return True if event is position based to break outside loop
+        return position_based
 
     def within_box(self, x: int, y: int, width: int, height: int) -> bool:
         """Check if given coordinates are within the box.
