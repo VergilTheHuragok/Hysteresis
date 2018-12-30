@@ -10,6 +10,8 @@ import time
 
 import pygame
 
+# TODO: Move constants to a global context as with the decimal class
+
 # Globals
 RUNNING = True
 
@@ -23,6 +25,8 @@ DEFAULT_BORDER_WIDTH = 1
 DEFAULT_BORDER_COLOR = (255, 255, 255)
 DEFAULT_INDICATOR_COLOR = (125, 125, 255)
 DEFAULT_TEXT_COLOR = (255, 255, 255)
+DEFAULT_CURSOR_COLOR = (255, 125, 125)
+DEFAULT_CURSOR_WIDTH = 1
 
 # TextWrap Constants
 # N = new text object
@@ -44,6 +48,15 @@ SCROLL_AMOUNT = 1
 DRAG_DECELERATION = 35
 DRAG_FACTOR = 1
 DRAG_DEADZONE = 20
+
+CURSOR_KEYS = {
+    pygame.K_LEFT: -1,
+    pygame.K_RIGHT: 1,
+    pygame.K_DOWN: "d",
+    pygame.K_UP: "u",
+}
+CURSOR_REPEAT_TIME = .005
+CURSOR_REPEAT_THRESHOLD = .5
 
 
 def _mark_dirty():
@@ -81,11 +94,36 @@ def _coast_scrolls():
             wrap.drags_to_go = 0
 
 
+def _check_held_keys():
+    """Check for keys being held."""
+
+    if isinstance(active_box, type(None)):
+        # No active box
+        return
+    if not isinstance(active_box, InputBox):
+        # Active box is not an input box
+        return
+    if isinstance(active_box.cursor_key_press_time, type(None)):
+        # Key press not yet handled by active_box
+        return
+
+    keys = pygame.key.get_pressed()
+    if 1 not in keys:
+        return
+
+    pressed_keys = [ind for ind, key in enumerate(keys) if key == 1]
+    for key in pressed_keys:
+        if key in CURSOR_KEYS:
+            active_box.handle_cursor_key(key)
+                
+
+
 def render(display: pygame.Surface, fill_color: Iterable[int] = None):
     """Render every textbox if DIRTY."""
     global DIRTY
 
     _coast_scrolls()
+    _check_held_keys()
 
     if DIRTY:
         if not isinstance(fill_color, type(None)):
@@ -137,6 +175,9 @@ def check_events(
             RUNNING = False
         elif event.type == pygame.VIDEORESIZE:
             display = _resize_display(event.dict["size"])
+        elif event.type == pygame.KEYUP:
+            for box in textboxes:
+                box.reset_cursor_repeat()
 
         if "pos" in event.dict:
             for box in textboxes:
@@ -547,7 +588,7 @@ class _Line:
 
         return added_text, following_text_segment
 
-    def _get_text_segment(self, text):
+    def get_text_segment(self, text):
         """Get the segment of a text object in this line."""
         text_id = id(text)
         if text_id in self.text_segments:
@@ -559,7 +600,7 @@ class _Line:
         """Render the line to the display."""
         text_x = 0
         for text in self.text_list:
-            text_segment = self._get_text_segment(text)
+            text_segment = self.get_text_segment(text)
             text.set_text_segment(text_segment)
             text.set_pos((self.pos[0] + text_x, self.pos[1]))
             text.render(display)
@@ -777,6 +818,15 @@ class _TextWrap:
             self.wrapped_text_list.clear()
             self.line_num = 0
             self.remaining_segments.clear()
+
+    def get_box_string(self):
+        """Get all text in box as a string."""
+        string = ""
+        for text in self.wrapped_text_list:
+            string += text.all_text
+        for text in self.new_text_list:
+            string += text.all_text
+        return string
 
     def add_text(self, text_list: Iterable[Text]):
         """Add text to the current input."""
@@ -1020,15 +1070,6 @@ class TextBox:
         coords = [rect[0], rect[1], rect[2] + rect[0], rect[3] + rect[1]]
         return coords[0] < x < coords[2] and coords[1] < y < coords[3]
 
-    def get_box_string(self):
-        """Get all text in box as a string."""
-        string = ""
-        for text in self.text_wrap.wrapped_text_list:
-            string += text.all_text
-        for text in self.text_wrap.new_text_list:
-            string += text.all_text
-        return string
-
     def _draw_box(self, display: pygame.Surface):
         """Draw the outline of the textbox to the display."""
         width = display.get_width()
@@ -1067,9 +1108,12 @@ class InputBox(TextBox):
     """Allow text input and display said text."""
 
     def __init__(self, pins: Iterable[int]):
-        super().__init__(pins)
+        TextBox.__init__(self, pins)
 
         self.cursor_index = 0
+        self.cursor_rect = None
+        self.cursor_key_press_time = None
+        self.cursor_repeating = False
 
     def handle_event(self, event, display):
         """Handle pygame events relating to input.
@@ -1080,9 +1124,117 @@ class InputBox(TextBox):
 
         if event.type == pygame.KEYDOWN:
             # TODO: Handle input
-            pass
+            if event.key in CURSOR_KEYS:
+                direction = CURSOR_KEYS[event.key]
+                self.move_cursor_direction(direction)
+                
+                self.cursor_key_press_time = get_time()
 
         return within_box
+
+    def move_cursor_direction(self, direction):
+        """Move the cursor a given direction.
+        
+        Parameters
+        ----------
+        direction
+            The direction to move the cursor. 
+            "u": One line Up, "d": One line Down, INT: Left and Right
+        
+        """
+        if isinstance(direction, int):
+            self.move_cursor(direction)
+        # TODO: Move cursor up and down
+
+    def reset_cursor_repeat(self):
+        """Reset the cursor repeat vars."""
+        self.cursor_key_press_time = None
+        self.cursor_repeating = False
+
+    def handle_cursor_key(self, key):
+        """Handle cursor key repeats."""
+        last_press = self.cursor_key_press_time
+        print(last_press, self.cursor_repeating, last_press)
+        if self.cursor_repeating:
+            if get_time() > self.cursor_key_press_time + CURSOR_REPEAT_TIME:
+                self.cursor_key_press_time = get_time()
+                self.move_cursor_direction(CURSOR_KEYS[key])
+        elif get_time() > last_press + CURSOR_REPEAT_THRESHOLD:
+            self.cursor_repeating = True
+            self.cursor_key_press_time = get_time()
+
+
+    def _update_cursor(self):
+        """Update the box to reflect the cursor's position."""
+        while True:
+            with self.text_wrap.text_lock:
+                index = 0
+                y_pos = 0
+                height = 0
+                found = False
+                line_num = 0
+                for _line_num, line in enumerate(self.text_wrap.lines):
+                    height = line.height
+                    x_pos = 0
+                    for text in line:
+                        segment = line.get_text_segment(text)
+                        if index + len(segment) >= self.cursor_index:
+                            # cursor within segment
+                            remaining_chars = self.cursor_index - index
+                            segment_before_cursor = segment[:remaining_chars]
+                            x_pos += text.get_size(segment_before_cursor)[0]
+                            found = True
+                            break
+                        x_pos += text.get_size(segment)[0]
+                        index += len(segment)
+                    if found:
+                        line_num = _line_num
+                        break
+                    y_pos += line.height
+
+            if not found:
+                # Index not yet wrapped.
+                self.text_wrap.scroll_lines(1)
+                self.text_wrap._wrap_new_lines(False)
+                # TODO: Get cursor y pos right when this happens
+                # TODO: Allow scrolling to update cursor pos
+            else:
+                if line_num < self.text_wrap.line_num:
+                    # Cursor above screen
+                    self.text_wrap.scroll_lines(line_num - self.text_wrap.line_num)
+                    y_pos = 0
+                elif line_num > self.text_wrap._get_final_line_num():
+                    # Cursor below screen
+                    # Index was found so lines must already be wrapped
+                    self.text_wrap.scroll_lines(self.text_wrap.line_num - line_num)
+                    y_pos = 0
+
+                self.cursor_rect = (x_pos, y_pos, DEFAULT_CURSOR_WIDTH, height)
+                _mark_dirty()
+                break
+
+    def move_cursor(self, num_chars):
+        """Move the cursor the given number of chars."""
+        self.cursor_index += num_chars
+
+        num_chars = len(self.text_wrap.get_box_string())
+        self.cursor_index = max(0, self.cursor_index)
+        self.cursor_index = min(num_chars, self.cursor_index)
+        self._update_cursor()
+    
+    def _draw_cursor(self, display):
+        """Draw the cursor."""
+        if not isinstance(self.cursor_rect, type(None)):
+            box_rect = self._get_rect(*get_dims(display))
+            cursor_rect = list(self.cursor_rect)
+            cursor_rect[0] += box_rect[0]
+            cursor_rect[1] += box_rect[1]
+            pygame.draw.rect(display, DEFAULT_CURSOR_COLOR, cursor_rect)
+
+    def render(self, display):
+        """Render the input box and cursor."""
+        TextBox.render(self, display)
+        self._draw_cursor(display)
 
 
 if __name__ == "__main__":
