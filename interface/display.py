@@ -55,8 +55,8 @@ CURSOR_KEYS = {
     pygame.K_DOWN: "d",
     pygame.K_UP: "u",
 }
-CURSOR_REPEAT_TIME = .005
-CURSOR_REPEAT_THRESHOLD = .5
+CURSOR_REPEAT_TIME = 0.00005
+CURSOR_REPEAT_THRESHOLD = 0.5
 
 
 def _mark_dirty():
@@ -70,28 +70,7 @@ def _coast_scrolls():
     """Find textboxes which have coasting scrolls and perform scroll."""
 
     for box in textboxes:
-        wrap = box.text_wrap
-        if wrap.drag_speed and (
-            abs(wrap.drag_speed) > DRAG_DEADZONE or wrap.drags_to_go
-        ):
-            # Only coast if already are or above deadzone
-            current_time = get_time()
-            time_diff = current_time - wrap.drag_end_time
-            wrap.drags_to_go += wrap.drag_speed * time_diff
-            wrap.drag_end_time = current_time
-            if wrap.drag_speed < 0:
-                wrap.drag_speed += DRAG_DECELERATION * time_diff
-                wrap.drag_speed = min(0, wrap.drag_speed)
-            elif wrap.drag_speed > 0:
-                wrap.drag_speed -= DRAG_DECELERATION * time_diff
-                wrap.drag_speed = max(0, wrap.drag_speed)
-            if abs(wrap.drags_to_go) > 1:
-                drag = int(wrap.drags_to_go)
-                wrap.scroll_lines(drag)
-                wrap.drags_to_go %= int(wrap.drags_to_go)
-        else:
-            # When speed reaches zero, clear remaining coast
-            wrap.drags_to_go = 0
+        box.text_wrap.coast_scroll()
 
 
 def _check_held_keys():
@@ -115,7 +94,6 @@ def _check_held_keys():
     for key in pressed_keys:
         if key in CURSOR_KEYS:
             active_box.handle_cursor_key(key)
-                
 
 
 def render(display: pygame.Surface, fill_color: Iterable[int] = None):
@@ -885,6 +863,30 @@ class _TextWrap:
         self.dragged_lines = 0
         self.drags_to_go = 0
 
+    def coast_scroll(self):
+        """Continue a scroll based on current drag speed."""
+        if self.drag_speed and (
+            abs(self.drag_speed) > DRAG_DEADZONE or self.drags_to_go
+        ):
+            # Only coast if already are or above deadzone
+            current_time = get_time()
+            time_diff = current_time - self.drag_end_time
+            self.drags_to_go += self.drag_speed * time_diff
+            self.drag_end_time = current_time
+            if self.drag_speed < 0:
+                self.drag_speed += DRAG_DECELERATION * time_diff
+                self.drag_speed = min(0, self.drag_speed)
+            elif self.drag_speed > 0:
+                self.drag_speed -= DRAG_DECELERATION * time_diff
+                self.drag_speed = max(0, self.drag_speed)
+            if abs(self.drags_to_go) > 1:
+                drag = int(self.drags_to_go)
+                self.scroll_lines(drag)
+                self.drags_to_go %= int(self.drags_to_go)
+        else:
+            # When speed reaches zero, clear remaining coast
+            self.drags_to_go = 0
+
     def end_drag(self):
         """Calculate and set drag speed."""
         time_diff = get_time() - self.drag_start_time
@@ -1127,7 +1129,7 @@ class InputBox(TextBox):
             if event.key in CURSOR_KEYS:
                 direction = CURSOR_KEYS[event.key]
                 self.move_cursor_direction(direction)
-                
+
                 self.cursor_key_press_time = get_time()
 
         return within_box
@@ -1154,7 +1156,6 @@ class InputBox(TextBox):
     def handle_cursor_key(self, key):
         """Handle cursor key repeats."""
         last_press = self.cursor_key_press_time
-        print(last_press, self.cursor_repeating, last_press)
         if self.cursor_repeating:
             if get_time() > self.cursor_key_press_time + CURSOR_REPEAT_TIME:
                 self.cursor_key_press_time = get_time()
@@ -1163,9 +1164,15 @@ class InputBox(TextBox):
             self.cursor_repeating = True
             self.cursor_key_press_time = get_time()
 
-
-    def _update_cursor(self):
-        """Update the box to reflect the cursor's position."""
+    def _update_cursor_pos(self, allow_scroll=True):
+        """Update the box to reflect the cursor's position.
+        
+        Parameters
+        ----------
+        allow_scroll
+            When true, scroll the screen to contain cursor. 
+            Otherwise, change cursor index to remain on screen.
+        """
         while True:
             with self.text_wrap.text_lock:
                 index = 0
@@ -1190,28 +1197,96 @@ class InputBox(TextBox):
                     if found:
                         line_num = _line_num
                         break
-                    y_pos += line.height
+                    if _line_num >= self.text_wrap.line_num:
+                        y_pos += line.height
+
+            final_line_num = self.text_wrap._get_final_line_num()
 
             if not found:
                 # Index not yet wrapped.
                 self.text_wrap.scroll_lines(1)
                 self.text_wrap._wrap_new_lines(False)
-                # TODO: Get cursor y pos right when this happens
+                continue
                 # TODO: Allow scrolling to update cursor pos
-            else:
-                if line_num < self.text_wrap.line_num:
-                    # Cursor above screen
+            elif line_num < self.text_wrap.line_num or line_num > final_line_num:
+                # Cursor outside screen
+                if allow_scroll:
                     self.text_wrap.scroll_lines(line_num - self.text_wrap.line_num)
-                    y_pos = 0
-                elif line_num > self.text_wrap._get_final_line_num():
-                    # Cursor below screen
-                    # Index was found so lines must already be wrapped
-                    self.text_wrap.scroll_lines(self.text_wrap.line_num - line_num)
-                    y_pos = 0
+                    if line_num > final_line_num:
+                        y_pos -= self.text_wrap.lines[line_num - 1].height
+                    else:
+                        y_pos = 0
+                    # BUG: Moving cusor back a line after scrolling.
+                    #      Prolly has to do with _update_cursor_index 
+                    #      Step through with debugger at last char before scroll
+                else:
+                    self._update_cursor_index()
+                    break
 
-                self.cursor_rect = (x_pos, y_pos, DEFAULT_CURSOR_WIDTH, height)
-                _mark_dirty()
+            self.cursor_rect = (x_pos, y_pos, DEFAULT_CURSOR_WIDTH, height)
+            _mark_dirty()
+            break
+
+    def get_index_from_point(self, point):
+        """Determine a character index based on a given point."""
+
+        # find line covering point
+        current_height = 0
+        line_num, line = 0, None
+        for _line_num, _line in enumerate(self.text_wrap._get_lines()):
+            current_height += _line.height
+            if point[1] < current_height:
+                line_num = _line_num
+                line = _line
                 break
+        else:
+            # clicked past last line
+            return None
+
+        char_ind = None
+        current_width = 0
+        for text in line:
+            # Find text object covering point
+            segment = line.get_text_segment(text)
+            segment_width = text.get_size(segment)[0]
+            current_width += segment_width
+            if point[0] <= current_width:
+                # find char in this text object covering point
+                current_width -= segment_width
+                sub_segment = ""
+                for _char_ind, char in enumerate(segment):
+                    sub_segment += char
+                    char_ind = _char_ind
+                    if point[0] < current_width + text.get_size(sub_segment)[0]:
+                        break
+                else:
+                    # On the last pixel of this text object
+                    char_ind += 1
+                    break
+                break
+        else:
+            # clicked past last text object
+            return None
+
+        prev_chars = 0
+        # find num chars before current line
+        for _line_num, line in enumerate(self.text_wrap.lines):
+            if _line_num == line_num:
+                break
+            for text in line:
+                prev_chars += len(line.get_text_segment(text))
+
+        return prev_chars + char_ind
+
+    def _update_cursor_index(self):
+        """Determine where the cursor's index is based on it's position."""
+        if isinstance(self.cursor_rect, type(None)):
+            return
+        point = self.cursor_rect[:2]
+        index = self.get_index_from_point(point)
+        if not isinstance(index, type(None)):
+            self.cursor_index = index
+            self._update_cursor_pos()
 
     def move_cursor(self, num_chars):
         """Move the cursor the given number of chars."""
@@ -1220,10 +1295,17 @@ class InputBox(TextBox):
         num_chars = len(self.text_wrap.get_box_string())
         self.cursor_index = max(0, self.cursor_index)
         self.cursor_index = min(num_chars, self.cursor_index)
-        self._update_cursor()
-    
+        self._update_cursor_pos()
+
     def _draw_cursor(self, display):
         """Draw the cursor."""
+        self._update_cursor_pos(False)
+
+        # IMPORTANT: Update index if cursor would be offscreen
+        #            Update pos if still on screen
+        print("Before", self.cursor_index)
+        self._update_cursor_index()
+        print("After", self.cursor_index)
         if not isinstance(self.cursor_rect, type(None)):
             box_rect = self._get_rect(*get_dims(display))
             cursor_rect = list(self.cursor_rect)
