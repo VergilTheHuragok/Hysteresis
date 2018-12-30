@@ -138,27 +138,12 @@ def check_events(
         elif event.type == pygame.VIDEORESIZE:
             display = _resize_display(event.dict["size"])
 
-        # elif event.type == pygame.MOUSEBUTTONDOWN:
-        #     mouse_downs[event.button] = [event.pos, get_time()]
-        #     mouse_presses.add(event.button)
-
-        # elif event.type == pygame.MOUSEBUTTONUP:
-        #     # Release drag
-        #     if event.button == 1 and event.button in mouse_downs:
-        #         for box in textboxes:
-        #             box.text_wrap.end_drag()
-        #     if event.button in mouse_downs:
-        #         del mouse_downs[event.button]
-
         if "pos" in event.dict:
             for box in textboxes:
                 if box.handle_event(event, display):
                     break
         elif not isinstance(active_box, type(None)):
             active_box.handle_event(event, display)
-    # TODO: Handle mouse clicks/drags on a box-by-box basis.
-    #           Finish moving globals to oob
-    # TODO: Get rid of mouse and button globals
     return display
 
 
@@ -649,7 +634,6 @@ class _TextWrap:
 
         self.was_at_bottom = False
 
-
     def _next_line(self):
         """Get the next line to be filled."""
         if self.lines:
@@ -957,7 +941,7 @@ class TextBox:
         return self.pos
 
     def handle_event(self, event, display):
-        """Handle pygame events such as scrolling."""
+        """Handle pygame events relating to scrolling."""
 
         position_based = "pos" in event.dict
         if position_based and not self.within_box(*event.pos, *get_dims(display)):
@@ -1058,7 +1042,21 @@ class InputBox(TextBox):
 
     def __init__(self, pins: Iterable[int]):
         super().__init__(pins)
-        # TODO: Store cursor as an index.
+
+        self.cursor_index = 0
+
+    def handle_event(self, event, display):
+        """Handle pygame events relating to input.
+
+        Override parent method.
+        """
+        within_box = TextBox.handle_event(self, event, display)
+
+        if event.type == pygame.KEYDOWN:
+            # TODO: Handle input
+            pass
+
+        return within_box
 
 
 if __name__ == "__main__":
