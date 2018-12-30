@@ -25,7 +25,7 @@ DEFAULT_BORDER_WIDTH = 1
 DEFAULT_BORDER_COLOR = (255, 255, 255)
 DEFAULT_INDICATOR_COLOR = (125, 125, 255)
 DEFAULT_TEXT_COLOR = (255, 255, 255)
-DEFAULT_CURSOR_COLOR = (255, 125, 125)
+DEFAULT_CURSOR_COLOR = (255, 0, 0)
 DEFAULT_CURSOR_WIDTH = 1
 
 # TextWrap Constants
@@ -155,7 +155,8 @@ def check_events(
             display = _resize_display(event.dict["size"])
         elif event.type == pygame.KEYUP:
             for box in textboxes:
-                box.reset_cursor_repeat()
+                if isinstance(box, InputBox):
+                    box.reset_cursor_repeat()
 
         if "pos" in event.dict:
             for box in textboxes:
@@ -573,6 +574,13 @@ class _Line:
             text_segment = self.text_segments[text_id]
             return text_segment
         return text.text_segment
+    
+    def get_line_string(self):
+        """Get the string of text stored by the line."""
+        string = ""
+        for text in self.text_list:
+            string += self.get_text_segment(text)
+        return string
 
     def render(self, display: pygame.Surface):
         """Render the line to the display."""
@@ -632,8 +640,6 @@ class _Line:
 class _TextWrap:
     """Store wrapped text and handle wrapping."""
 
-    # TODO: Add hover word support at display level
-    #   Easiest way to ensure hover text stays with correct words
     # TODO: Store text older than a given num of lines in a file
     #   use repr of text objects to store/retrieve
     #   This should all take place at a higher level
@@ -800,8 +806,9 @@ class _TextWrap:
     def get_box_string(self):
         """Get all text in box as a string."""
         string = ""
-        for text in self.wrapped_text_list:
-            string += text.all_text
+        for line in self.lines:
+            for text in line:
+                string += line.get_text_segment(text)
         for text in self.new_text_list:
             string += text.all_text
         return string
@@ -1145,8 +1152,10 @@ class InputBox(TextBox):
         
         """
         if isinstance(direction, int):
-            self.move_cursor(direction)
-        # TODO: Move cursor up and down
+            # Left or Right
+            self.move_cursor_chars(direction)
+        else:
+            self.move_cursor_lines(-1 if direction == "u" else 1)
 
     def reset_cursor_repeat(self):
         """Reset the cursor repeat vars."""
@@ -1164,6 +1173,23 @@ class InputBox(TextBox):
             self.cursor_repeating = True
             self.cursor_key_press_time = get_time()
 
+    def _get_cursor_line(self):
+        """Get the line number which the cursor is on based on its index."""
+        with self.text_wrap.text_lock:
+            index = 0
+            for line_num, line in enumerate(self.text_wrap.lines):
+                for text in line:
+                    index += len(line.get_text_segment(text))
+                    if index > self.cursor_index:
+                        return line_num
+        return len(self.text_wrap.lines) - 1
+
+    def _bind_cursor(self):
+        """Restrict cursor to remain within box."""
+        num_chars = len(self.text_wrap.get_box_string())
+        self.cursor_index = max(0, self.cursor_index)
+        self.cursor_index = min(num_chars, self.cursor_index)
+
     def _update_cursor_pos(self, allow_scroll=True):
         """Update the box to reflect the cursor's position.
         
@@ -1172,7 +1198,10 @@ class InputBox(TextBox):
         allow_scroll
             When true, scroll the screen to contain cursor. 
             Otherwise, change cursor index to remain on screen.
+
         """
+        self._bind_cursor()
+
         while True:
             with self.text_wrap.text_lock:
                 index = 0
@@ -1185,7 +1214,7 @@ class InputBox(TextBox):
                     x_pos = 0
                     for text in line:
                         segment = line.get_text_segment(text)
-                        if index + len(segment) >= self.cursor_index:
+                        if index + len(segment) > self.cursor_index:
                             # cursor within segment
                             remaining_chars = self.cursor_index - index
                             segment_before_cursor = segment[:remaining_chars]
@@ -1194,20 +1223,25 @@ class InputBox(TextBox):
                             break
                         x_pos += text.get_size(segment)[0]
                         index += len(segment)
+                    line_num = _line_num
                     if found:
-                        line_num = _line_num
                         break
                     if _line_num >= self.text_wrap.line_num:
                         y_pos += line.height
+                else:
+                    # Not found, check past final char
+                    if not self.text_wrap.new_text_list:
+                        # No more lines to wrap, checked everyline
+                        y_pos -= self.text_wrap.lines[line_num].height
+                        found = True
 
             final_line_num = self.text_wrap._get_final_line_num()
 
             if not found:
                 # Index not yet wrapped.
                 self.text_wrap.scroll_lines(1)
-                self.text_wrap._wrap_new_lines(False)
+                self.text_wrap._wrap_new_lines()
                 continue
-                # TODO: Allow scrolling to update cursor pos
             elif line_num < self.text_wrap.line_num or line_num > final_line_num:
                 # Cursor outside screen
                 if allow_scroll:
@@ -1216,14 +1250,11 @@ class InputBox(TextBox):
                         y_pos -= self.text_wrap.lines[line_num - 1].height
                     else:
                         y_pos = 0
-                    # BUG: Moving cusor back a line after scrolling.
-                    #      Prolly has to do with _update_cursor_index 
-                    #      Step through with debugger at last char before scroll
                 else:
                     self._update_cursor_index()
                     break
 
-            self.cursor_rect = (x_pos, y_pos, DEFAULT_CURSOR_WIDTH, height)
+            self.cursor_rect = [x_pos, y_pos, DEFAULT_CURSOR_WIDTH, height]
             _mark_dirty()
             break
 
@@ -1241,37 +1272,39 @@ class InputBox(TextBox):
                 break
         else:
             # clicked past last line
-            return None
+            return len(self.text_wrap.get_box_string())
+        # TODO: Ensure index can go one past final char
 
-        char_ind = None
+        char_ind = 0
         current_width = 0
         for text in line:
             # Find text object covering point
             segment = line.get_text_segment(text)
             segment_width = text.get_size(segment)[0]
             current_width += segment_width
-            if point[0] <= current_width:
+            if point[0] < current_width:
                 # find char in this text object covering point
                 current_width -= segment_width
                 sub_segment = ""
                 for _char_ind, char in enumerate(segment):
                     sub_segment += char
-                    char_ind = _char_ind
                     if point[0] < current_width + text.get_size(sub_segment)[0]:
+                        char_ind += _char_ind
                         break
                 else:
                     # On the last pixel of this text object
                     char_ind += 1
                     break
                 break
+            char_ind += len(segment)
         else:
-            # clicked past last text object
-            return None
+            # clicked past last text object on line
+            char_ind = len(line.get_line_string())
 
         prev_chars = 0
         # find num chars before current line
         for _line_num, line in enumerate(self.text_wrap.lines):
-            if _line_num == line_num:
+            if _line_num == line_num + self.text_wrap.line_num:
                 break
             for text in line:
                 prev_chars += len(line.get_text_segment(text))
@@ -1288,27 +1321,55 @@ class InputBox(TextBox):
             self.cursor_index = index
             self._update_cursor_pos()
 
-    def move_cursor(self, num_chars):
-        """Move the cursor the given number of chars."""
+    def move_cursor_chars(self, num_chars):
+        """Move the cursor the given number of chars left or right."""
         self.cursor_index += num_chars
-
-        num_chars = len(self.text_wrap.get_box_string())
-        self.cursor_index = max(0, self.cursor_index)
-        self.cursor_index = min(num_chars, self.cursor_index)
         self._update_cursor_pos()
+
+    def move_cursor_lines(self, lines):
+        """Move the cursor up or down.
+        
+        Parameter
+        ---------
+        lines
+            If positive, move one line down, else one line up.
+            
+        """
+        current_line = self._get_cursor_line()
+        if lines < 0:
+            if current_line <= self.text_wrap.line_num:
+                if current_line == 0:
+                    self.cursor_index = 0
+                    self._update_cursor_pos()
+                else:
+                    # At top of screen
+                    self.text_wrap.scroll_lines(-1)
+                    self._update_cursor_index()
+            else:
+                to_line_num = current_line - 1
+                to_line = self.text_wrap.lines[to_line_num]
+                self.cursor_rect[1] -= to_line.height
+                self._update_cursor_index()
+        elif lines > 0:
+            if current_line >= self.text_wrap._get_final_line_num():
+                # At bottom of screen
+                self.text_wrap.scroll_lines(1)
+                self.text_wrap._wrap_new_lines()
+                self._update_cursor_index()
+            else:
+                to_line_num = current_line + 1
+                to_line = self.text_wrap.lines[to_line_num]
+                self.cursor_rect[1] += to_line.height
+                self._update_cursor_index()
 
     def _draw_cursor(self, display):
         """Draw the cursor."""
         self._update_cursor_pos(False)
 
-        # IMPORTANT: Update index if cursor would be offscreen
-        #            Update pos if still on screen
-        print("Before", self.cursor_index)
         self._update_cursor_index()
-        print("After", self.cursor_index)
         if not isinstance(self.cursor_rect, type(None)):
             box_rect = self._get_rect(*get_dims(display))
-            cursor_rect = list(self.cursor_rect)
+            cursor_rect = self.cursor_rect[:]
             cursor_rect[0] += box_rect[0]
             cursor_rect[1] += box_rect[1]
             pygame.draw.rect(display, DEFAULT_CURSOR_COLOR, cursor_rect)

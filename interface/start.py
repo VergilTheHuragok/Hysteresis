@@ -27,7 +27,7 @@ def _interface_loop():
         display = interface.display.check_events(display, events)
 
         pygame.display.flip()
-        sleep(.01)
+        sleep(.00001)
 
 
 def init():
