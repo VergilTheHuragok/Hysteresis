@@ -857,11 +857,14 @@ class _TextWrap:
 
     def scroll_lines(self, num_lines):
         """Scroll a given number of lines."""
-        with self.text_lock:
-            self.line_num += num_lines
-            self.line_num = max(0, self.line_num)
-            self.calculate_height()
-            _mark_dirty()
+        self.line_num += num_lines
+        self.line_num = max(0, self.line_num)
+        to_scroll = len(self.lines) - self.line_num - 1
+        if to_scroll < 0:
+            # Ensure we don't scroll past the last line
+            self.scroll_lines(to_scroll)
+        self.calculate_height()
+        _mark_dirty()
 
     def _stop_coast(self):
         """Stop coasting."""
@@ -911,6 +914,9 @@ class _TextWrap:
     def scroll_drag(self, original_pos, current_pos):
         """Scroll based on mouse movement."""
 
+        if not self.lines:
+            return False
+
         y_dist = current_pos[1] - original_pos[1]
         if y_dist > 0 and self.line_num > 0:
             # Check if dragging down
@@ -947,16 +953,10 @@ class _TextWrap:
             self.pos = pos
             lines_added = self._wrap_new_lines(self.was_at_bottom)
 
-        to_scroll = len(self.lines) - self.line_num - 1
-        if to_scroll < 0:
-            # Ensure we don't scroll past the last line
-            self.scroll_lines(to_scroll)
+            if self.was_at_bottom and lines_added:
+                # Lock scroll to bottom
+                self.scroll_lines(lines_added - 1)
 
-        if self.was_at_bottom and lines_added:
-            # Lock scroll to bottom
-            self.scroll_lines(lines_added - 1)
-
-        with self.text_lock:
             line_y = self.pos[1]
             for line in self._get_lines():
                 if line.height + line_y <= self.pos[1] + self.pos[3]:
@@ -966,7 +966,7 @@ class _TextWrap:
                 else:
                     break
 
-        self.was_at_bottom = self.at_bottom()
+            self.was_at_bottom = self.at_bottom()
         return self.was_at_bottom, self.line_num == 0
 
 
@@ -1033,32 +1033,32 @@ class TextBox:
             return False
 
         activate_box(self)
-
-        if event.type == pygame.MOUSEBUTTONDOWN:
-            if event.button in [4, 5]:
-                # Mouse Scroll
-                self.text_wrap._stop_coast()
-                if event.button == 4:
-                    self.text_wrap.scroll_lines(-SCROLL_AMOUNT)
-                else:
-                    self.text_wrap.scroll_lines(SCROLL_AMOUNT)
-            elif event.button == 1:
-                # Click
-                self.text_wrap.drag_start_time = get_time()
-                self.text_wrap.drag_start_pos = event.pos
-        elif event.type == pygame.MOUSEMOTION:
-            # Drag
-            if not isinstance(self.text_wrap.drag_start_time, type(None)):
-                if self.text_wrap.scroll_drag(self.text_wrap.drag_start_pos, event.pos):
+        with self.text_wrap.text_lock:
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if event.button in [4, 5]:
+                    # Mouse Scroll
+                    self.text_wrap._stop_coast()
+                    if event.button == 4:
+                        self.text_wrap.scroll_lines(-SCROLL_AMOUNT)
+                    else:
+                        self.text_wrap.scroll_lines(SCROLL_AMOUNT)
+                elif event.button == 1:
+                    # Click
+                    self.text_wrap.drag_start_time = get_time()
                     self.text_wrap.drag_start_pos = event.pos
-        elif event.type == pygame.MOUSEBUTTONUP:
-            if event.button == 1:
-                self.text_wrap.end_drag()
-                self.text_wrap.drag_start_pos = None
-                self.text_wrap.drag_start_time = None
+            elif event.type == pygame.MOUSEMOTION:
+                # Drag
+                if not isinstance(self.text_wrap.drag_start_time, type(None)):
+                    if self.text_wrap.scroll_drag(self.text_wrap.drag_start_pos, event.pos):
+                        self.text_wrap.drag_start_pos = event.pos
+            elif event.type == pygame.MOUSEBUTTONUP:
+                if event.button == 1:
+                    self.text_wrap.end_drag()
+                    self.text_wrap.drag_start_pos = None
+                    self.text_wrap.drag_start_time = None
 
-        # Return True if event is position based to break outside loop
-        return position_based
+            # Return True if event is position based to break outside loop
+            return position_based
 
     def within_box(self, x: int, y: int, width: int, height: int) -> bool:
         """Check if given coordinates are within the box.
@@ -1151,11 +1151,16 @@ class InputBox(TextBox):
             "u": One line Up, "d": One line Down, INT: Left and Right
         
         """
-        if isinstance(direction, int):
-            # Left or Right
-            self.move_cursor_chars(direction)
-        else:
-            self.move_cursor_lines(-1 if direction == "u" else 1)
+        with self.text_wrap.text_lock:
+            if isinstance(self.cursor_rect, type(None)):
+                return
+            if not self.text_wrap.lines:
+                return
+            if isinstance(direction, int):
+                # Left or Right
+                self.move_cursor_chars(direction)
+            else:
+                self.move_cursor_lines(-1 if direction == "u" else 1)
 
     def reset_cursor_repeat(self):
         """Reset the cursor repeat vars."""
@@ -1175,13 +1180,12 @@ class InputBox(TextBox):
 
     def _get_cursor_line(self):
         """Get the line number which the cursor is on based on its index."""
-        with self.text_wrap.text_lock:
-            index = 0
-            for line_num, line in enumerate(self.text_wrap.lines):
-                for text in line:
-                    index += len(line.get_text_segment(text))
-                    if index > self.cursor_index:
-                        return line_num
+        index = 0
+        for line_num, line in enumerate(self.text_wrap.lines):
+            for text in line:
+                index += len(line.get_text_segment(text))
+                if index > self.cursor_index:
+                    return line_num
         return len(self.text_wrap.lines) - 1
 
     def _bind_cursor(self):
@@ -1200,40 +1204,43 @@ class InputBox(TextBox):
             Otherwise, change cursor index to remain on screen.
 
         """
-        self._bind_cursor()
 
+        self._bind_cursor()
         while True:
-            with self.text_wrap.text_lock:
-                index = 0
-                y_pos = 0
-                height = 0
-                found = False
-                line_num = 0
-                for _line_num, line in enumerate(self.text_wrap.lines):
-                    height = line.height
-                    x_pos = 0
-                    for text in line:
-                        segment = line.get_text_segment(text)
-                        if index + len(segment) > self.cursor_index:
-                            # cursor within segment
-                            remaining_chars = self.cursor_index - index
-                            segment_before_cursor = segment[:remaining_chars]
-                            x_pos += text.get_size(segment_before_cursor)[0]
-                            found = True
-                            break
-                        x_pos += text.get_size(segment)[0]
-                        index += len(segment)
-                    line_num = _line_num
-                    if found:
-                        break
-                    if _line_num >= self.text_wrap.line_num:
-                        y_pos += line.height
-                else:
-                    # Not found, check past final char
-                    if not self.text_wrap.new_text_list:
-                        # No more lines to wrap, checked everyline
-                        y_pos -= self.text_wrap.lines[line_num].height
+            if not self.text_wrap.lines:
+                self.cursor_index = 0
+                self.cursor_rect = None
+                return
+            index = 0
+            y_pos = 0
+            height = 0
+            found = False
+            line_num = 0
+            for _line_num, line in enumerate(self.text_wrap.lines):
+                height = line.height
+                x_pos = 0
+                for text in line:
+                    segment = line.get_text_segment(text)
+                    if index + len(segment) > self.cursor_index:
+                        # cursor within segment
+                        remaining_chars = self.cursor_index - index
+                        segment_before_cursor = segment[:remaining_chars]
+                        x_pos += text.get_size(segment_before_cursor)[0]
                         found = True
+                        break
+                    x_pos += text.get_size(segment)[0]
+                    index += len(segment)
+                line_num = _line_num
+                if found:
+                    break
+                if _line_num >= self.text_wrap.line_num:
+                    y_pos += line.height
+            else:
+                # Not found, check past final char
+                if not self.text_wrap.new_text_list:
+                    # No more lines to wrap, checked everyline
+                    y_pos -= self.text_wrap.lines[line_num].height
+                    found = True
 
             final_line_num = self.text_wrap._get_final_line_num()
 
@@ -1245,7 +1252,8 @@ class InputBox(TextBox):
             elif line_num < self.text_wrap.line_num or line_num > final_line_num:
                 # Cursor outside screen
                 if allow_scroll:
-                    self.text_wrap.scroll_lines(line_num - self.text_wrap.line_num)
+                    lines_to_scroll = line_num - self.text_wrap.line_num
+                    self.text_wrap.scroll_lines(lines_to_scroll)
                     if line_num > final_line_num:
                         y_pos -= self.text_wrap.lines[line_num - 1].height
                     else:
@@ -1315,6 +1323,7 @@ class InputBox(TextBox):
         """Determine where the cursor's index is based on it's position."""
         if isinstance(self.cursor_rect, type(None)):
             return
+
         point = self.cursor_rect[:2]
         index = self.get_index_from_point(point)
         if not isinstance(index, type(None)):
@@ -1377,7 +1386,8 @@ class InputBox(TextBox):
     def render(self, display):
         """Render the input box and cursor."""
         TextBox.render(self, display)
-        self._draw_cursor(display)
+        with self.text_wrap.text_lock:
+            self._draw_cursor(display)
 
 
 if __name__ == "__main__":
