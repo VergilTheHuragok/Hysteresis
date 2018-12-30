@@ -247,6 +247,7 @@ class Text:
         color: Iterable[int] = None,
         highlight: Iterable[int] = None,
         new_line: bool = False,
+        label: str = None,
     ):
         self.text_segment = text
         self.all_text = text
@@ -258,6 +259,7 @@ class Text:
         self.highlight = highlight
 
         self.new_line = new_line
+        self.label = label
 
         self.original_font_repr = repr(self.font)
         self.pos = None
@@ -265,6 +267,14 @@ class Text:
     def set_pos(self, pos: Iterable[int]):
         """Set the Text's pos."""
         self.pos = pos
+
+    def change_text(self, text):
+        """Change the original text.
+        
+        Line likely will need rewrapped.
+        """
+        self.all_text = text
+        self.text_segment = text
 
     def reset_text(self):
         """Reset the text's text_segment to the original, full string."""
@@ -772,6 +782,22 @@ class _TextWrap:
         """Add text to the current input."""
         with self.text_lock:
             self.new_text_list.extend(text_list)
+        _mark_dirty()
+
+    def get_labeled_text(self, label):
+        """Get all text with given label.
+
+        Make sure to rewrap and mark dirty.
+        """
+        all_text = self.wrapped_text_list + self.new_text_list
+        return list(filter(lambda x: x.label == label, all_text))
+
+    def change_text(self, label, string):
+        """Change all text objects with the given label to the new text."""
+        with self.text_lock:
+            for text in self.get_labeled_text(label):
+                text.change_text(string)
+        self.mark_wrap()
         _mark_dirty()
 
     def _get_lines(self):
