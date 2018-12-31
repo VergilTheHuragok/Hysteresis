@@ -1,2 +1,2 @@
 """Start the game."""
-from wrap_tests import long_string
+from wrap_tests import new_line

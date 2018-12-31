@@ -5,7 +5,7 @@ Must be ran from root of project.
 from time import sleep
 import random
 
-from interface.display import TextBox, Text, Font
+from interface.display import InputBox, Text, Font
 import interface.start
 
 interface.start.init()
@@ -22,8 +22,8 @@ Maybe it’s a little early. Maybe the time is not quite yet. But those other wo
 Silently, they orbit the Sun, waiting.
 """
 
-x = TextBox([.1, .1, .45, .9])
-y = TextBox([.55, .1, .9, .9])
+x = InputBox([.1, .1, .45, .9])
+y = InputBox([.55, .1, .9, .9])
 
 string = ""
 for i, char in enumerate(text):

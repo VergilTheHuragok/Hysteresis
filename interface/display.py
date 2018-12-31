@@ -25,7 +25,7 @@ DEFAULT_BORDER_WIDTH = 1
 DEFAULT_BORDER_COLOR = (255, 255, 255)
 DEFAULT_INDICATOR_COLOR = (125, 125, 255)
 DEFAULT_TEXT_COLOR = (255, 255, 255)
-DEFAULT_CURSOR_COLOR = (255, 0, 0)
+DEFAULT_CURSOR_COLOR = (255, 255, 255)
 DEFAULT_CURSOR_WIDTH = 1
 
 # TextWrap Constants
@@ -57,7 +57,7 @@ CURSOR_KEYS = {
 }
 CURSOR_REPEAT_TIME = 0.00005
 CURSOR_REPEAT_THRESHOLD = 0.5
-
+CURSOR_BLINK_INTERVAL = .5
 
 def _mark_dirty():
     """Mark the display dirty (i.e. set to redraw)."""
@@ -96,12 +96,22 @@ def _check_held_keys():
             active_box.handle_cursor_key(key)
 
 
+def _blink_cursor():
+    """Tick the active cursor to reflect blinks."""
+    if isinstance(active_box, type(None)):
+        return
+    
+    if active_box.blink_cursor():
+        _mark_dirty()
+
+
 def render(display: pygame.Surface, fill_color: Iterable[int] = None):
     """Render every textbox if DIRTY."""
     global DIRTY
 
     _coast_scrolls()
     _check_held_keys()
+    _blink_cursor()
 
     if DIRTY:
         if not isinstance(fill_color, type(None)):
@@ -141,6 +151,7 @@ def activate_box(box):
     """Set a textbox to active."""
     global active_box
     active_box = box
+    _mark_dirty()
 
 
 def check_events(
@@ -163,6 +174,9 @@ def check_events(
             for box in textboxes:
                 if box.handle_event(event, display):
                     break
+            else:
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    activate_box(None)
         elif not isinstance(active_box, type(None)):
             active_box.handle_event(event, display)
     return display
@@ -796,7 +810,8 @@ class _TextWrap:
         #            Save line_num between wraps unless after changed line
         #            set to changed line in that case
         # IMPORTANT: Insert printable characters. Allow use of mods (pygame built in?)
-        # :
+        # IMPORTANT: Backspace support
+
         self._stop_coast()
         self.lines.clear()
         self.current_height = 0
@@ -1037,7 +1052,6 @@ class TextBox:
         if position_based and not self.within_box(*event.pos, *get_dims(display)):
             return False
 
-        activate_box(self)
         with self.text_wrap.text_lock:
             if event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button in [4, 5]:
@@ -1049,9 +1063,11 @@ class TextBox:
                         self.text_wrap.scroll_lines(SCROLL_AMOUNT)
                 elif event.button == 1:
                     # Click
+                    activate_box(self)
                     self.text_wrap._stop_coast()
                     self.text_wrap.drag_start_time = get_time()
                     self.text_wrap.drag_start_pos = event.pos
+
             elif event.type == pygame.MOUSEMOTION:
                 # Drag
                 if not isinstance(self.text_wrap.drag_start_time, type(None)):
@@ -1062,6 +1078,12 @@ class TextBox:
             elif event.type == pygame.MOUSEBUTTONUP:
                 if event.button == 1:
                     self.text_wrap.end_drag()
+                    if self.text_wrap.drag_start_pos == event.pos:
+                        # Clicked in place
+                        box_rect = self._get_rect(*get_dims(display))
+                        point = (event.pos[0] - box_rect[0], event.pos[1] - box_rect[1])
+                        self.cursor_index = self.get_index_from_point(point)
+                        self._update_cursor_pos()
                     self.text_wrap.drag_start_pos = None
                     self.text_wrap.drag_start_time = None
 
@@ -1131,6 +1153,8 @@ class InputBox(TextBox):
         self.cursor_rect = None
         self.cursor_key_press_time = None
         self.cursor_repeating = False
+        self.cursor_blink_time = 0
+        self.cursor_blinked = False
 
     def handle_event(self, event, display):
         """Handle pygame events relating to input.
@@ -1189,6 +1213,7 @@ class InputBox(TextBox):
                 self.move_cursor_chars(direction)
             else:
                 self.move_cursor_lines(-1 if direction == "u" else 1)
+        self.reset_blink()
 
     def reset_cursor_repeat(self):
         """Reset the cursor repeat vars."""
@@ -1367,10 +1392,8 @@ class InputBox(TextBox):
             return
 
         point = self.cursor_rect[:2]
-        index = self.get_index_from_point(point)
-        if not isinstance(index, type(None)):
-            self.cursor_index = index
-            self._update_cursor_pos()
+        self.cursor_index = self.get_index_from_point(point)
+        self._update_cursor_pos()
 
     def move_cursor_chars(self, num_chars):
         """Move the cursor the given number of chars left or right."""
@@ -1412,24 +1435,41 @@ class InputBox(TextBox):
                 to_line = self.text_wrap.lines[to_line_num]
                 self.cursor_rect[1] += to_line.height
                 self._update_cursor_index()
+        self.reset_blink()
+
+    def blink_cursor(self):
+        """Update the cursor to reflect blinks."""
+        current_time = get_time()
+        if current_time > self.cursor_blink_time + CURSOR_BLINK_INTERVAL:
+            self.cursor_blinked = not self.cursor_blinked
+            self.cursor_blink_time = current_time
+            return True
+        return False
+
+    def reset_blink(self):
+        """Reset blink time to lengthen appearance of cursor."""
+        self.cursor_blink_time = get_time()
+        self.cursor_blinked = False
 
     def _draw_cursor(self, display):
         """Draw the cursor."""
         self._update_cursor_pos(False)
-
         self._update_cursor_index()
-        if not isinstance(self.cursor_rect, type(None)):
-            box_rect = self._get_rect(*get_dims(display))
-            cursor_rect = self.cursor_rect[:]
-            cursor_rect[0] += box_rect[0]
-            cursor_rect[1] += box_rect[1]
-            pygame.draw.rect(display, DEFAULT_CURSOR_COLOR, cursor_rect)
+
+        if not self.cursor_blinked:
+            if not isinstance(self.cursor_rect, type(None)):
+                box_rect = self._get_rect(*get_dims(display))
+                cursor_rect = self.cursor_rect[:]
+                cursor_rect[0] += box_rect[0]
+                cursor_rect[1] += box_rect[1]
+                pygame.draw.rect(display, DEFAULT_CURSOR_COLOR, cursor_rect)
 
     def render(self, display):
         """Render the input box and cursor."""
         TextBox.render(self, display)
-        with self.text_wrap.text_lock:
-            self._draw_cursor(display)
+        if active_box is self:
+            with self.text_wrap.text_lock:
+                self._draw_cursor(display)
 
 
 if __name__ == "__main__":
