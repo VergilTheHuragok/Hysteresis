@@ -179,6 +179,15 @@ def check_events(
                     activate_box(None)
         elif not isinstance(active_box, type(None)):
             active_box.handle_event(event, display)
+        
+        if event.type == pygame.MOUSEBUTTONUP:
+            # Must be cleared after boxes handle
+            if event.button == 1:
+                for box in textboxes:
+                    box.text_wrap.end_drag()
+                    box.text_wrap.drag_start_pos = None
+                    box.text_wrap.drag_start_time = None
+
     return display
 
 
@@ -919,11 +928,12 @@ class _TextWrap:
 
     def end_drag(self):
         """Calculate and set drag speed."""
-        time_diff = get_time() - self.drag_start_time
-        if time_diff:
-            self.drag_speed = (self.dragged_lines / time_diff) * DRAG_FACTOR
-        self.drag_end_time = get_time()
-        self.dragged_lines = 0
+        if not isinstance(self.drag_start_time, type(None)):
+            time_diff = get_time() - self.drag_start_time
+            if time_diff:
+                self.drag_speed = (self.dragged_lines / time_diff) * DRAG_FACTOR
+            self.drag_end_time = get_time()
+            self.dragged_lines = 0
 
     def at_bottom(self):
         """Check if last line is on screen."""
@@ -1077,15 +1087,12 @@ class TextBox:
                         self.text_wrap.drag_start_pos = event.pos
             elif event.type == pygame.MOUSEBUTTONUP:
                 if event.button == 1:
-                    self.text_wrap.end_drag()
                     if self.text_wrap.drag_start_pos == event.pos:
                         # Clicked in place
                         box_rect = self._get_rect(*get_dims(display))
                         point = (event.pos[0] - box_rect[0], event.pos[1] - box_rect[1])
                         self.cursor_index = self.get_index_from_point(point)
                         self._update_cursor_pos()
-                    self.text_wrap.drag_start_pos = None
-                    self.text_wrap.drag_start_time = None
 
             # Return True if event is position based to break outside loop
             return position_based
