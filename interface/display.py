@@ -10,7 +10,7 @@ import time
 
 import pygame
 
-# TODO: Move constants to a global context as with the decimal class
+# LONGTERM: Move constants to a global context as with the decimal class
 
 # Globals
 RUNNING = True
@@ -641,7 +641,7 @@ class _Line:
 class _TextWrap:
     """Store wrapped text and handle wrapping."""
 
-    # TODO: Store text older than a given num of lines in a file
+    # LONGTERM: Store text older than a given num of lines in a file
     #   use repr of text objects to store/retrieve
     #   This should all take place at a higher level
     #       Just take text objects from textbox and store reprs in file
@@ -792,9 +792,11 @@ class _TextWrap:
 
     def mark_wrap(self):
         """Set to be re-wrapped."""
-        # TODO: Only wrap first line changed and past.
-        #       Save line_num between wraps unless after changed line
-        #       set to changed line in that case
+        # IMPORTANT: Only wrap first line changed and past.
+        #            Save line_num between wraps unless after changed line
+        #            set to changed line in that case
+        # IMPORTANT: Insert printable characters. Allow use of mods (pygame built in?)
+        # :
         self._stop_coast()
         self.lines.clear()
         self.current_height = 0
@@ -1139,7 +1141,6 @@ class InputBox(TextBox):
 
         if event.type == pygame.KEYDOWN:
             self.text_wrap._stop_coast()
-            # TODO: Handle input
             if event.key in CURSOR_KEYS:
                 direction = CURSOR_KEYS[event.key]
                 self.move_cursor_direction(direction)
@@ -1158,7 +1159,6 @@ class InputBox(TextBox):
             if isinstance(returns, type(None)):
                 return
             line_num, text_obj, index, last_char = returns
-            # TODO: Figure out remaining_chars of line segment relative to all_text in obj
             all_text = text_obj.all_text
             text = f"{all_text[:index]}{char}{all_text[index:]}"
             text_obj.change_text(text)
@@ -1214,11 +1214,11 @@ class InputBox(TextBox):
 
     def _update_cursor_pos(self, allow_scroll=True):
         """Update the box to reflect the cursor's position.
-        
+
         Parameters
         ----------
         allow_scroll
-            When true, scroll the screen to contain cursor. 
+            When true, scroll the screen to contain cursor.
             Otherwise, change cursor index to remain on screen.
 
         """
@@ -1278,9 +1278,10 @@ class InputBox(TextBox):
                 # Not found, check past final char
                 if not self.text_wrap.new_text_list:
                     # No more lines to wrap, checked everyline
+                    # Must be past last char
                     last_line = self.text_wrap.lines[line_num]
                     y_pos -= last_line.height
-                    sub_index = len(last_line.text_list[-1].all_text) - 1
+                    sub_index = len(last_line.text_list[-1].all_text)
                     found = True
 
             final_line_num = self.text_wrap._get_final_line_num()
@@ -1323,7 +1324,6 @@ class InputBox(TextBox):
         else:
             # clicked past last line
             return len(self.text_wrap.get_box_string())
-        # TODO: Ensure index can go one past final char
 
         char_ind = 0
         current_width = 0

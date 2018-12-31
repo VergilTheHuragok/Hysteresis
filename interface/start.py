@@ -39,5 +39,5 @@ def init():
 
 def get_running():
     """Check if the interface has been closed by the user or stopped."""
-    # TODO: check if any important threads have terminated
+    # LONGTERM: check if any important threads have terminated
     return interface.display.RUNNING
