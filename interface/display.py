@@ -7,6 +7,7 @@ from threading import Lock
 from typing import Deque, Iterable, List, Optional, Set, Tuple
 from itertools import islice
 import time
+import string
 
 import pygame
 
@@ -55,9 +56,41 @@ CURSOR_KEYS = {
     pygame.K_DOWN: "d",
     pygame.K_UP: "u",
 }
-CURSOR_REPEAT_TIME = 0.00005
-CURSOR_REPEAT_THRESHOLD = 0.5
-CURSOR_BLINK_INTERVAL = .5
+CURSOR_REPEAT_TIME = 0.02
+CURSOR_REPEAT_THRESHOLD = 0.3
+CURSOR_BLINK_INTERVAL = 0.5
+
+KEYBOARD_LAYOUT = "`1234567890-=[]\\;',./"
+SHIFTED_LAYOUT = '~!@#$%^&*()_+{}|:"<>?'
+CHAR_NAMES = {"space": " ", "backspace": "backspace", "delete": "delete"}
+
+
+def _check_char(char: str):
+    """Apply modifiers to given char."""
+    # TODO: allow holding keys for repeat. Update cursor keys to use that method
+    if char in string.printable:
+        mods = pygame.key.get_mods()
+        shifted = pygame.KMOD_SHIFT & mods
+        capped = pygame.KMOD_CAPS & mods
+
+        upper = (shifted or capped) and not (shifted and capped)
+
+        if shifted:
+            if char in KEYBOARD_LAYOUT:
+                index = KEYBOARD_LAYOUT.index(char)
+                return SHIFTED_LAYOUT[index]
+        if upper:
+            return char.upper()
+
+        return char
+    elif len(char) > 1 and "[" in char:
+        for char_ in "[],":
+            char = char.replace(char_, "")
+        return char
+    elif char in CHAR_NAMES:
+        return CHAR_NAMES[char]
+    return
+
 
 def _mark_dirty():
     """Mark the display dirty (i.e. set to redraw)."""
@@ -100,7 +133,7 @@ def _blink_cursor():
     """Tick the active cursor to reflect blinks."""
     if isinstance(active_box, type(None)):
         return
-    
+
     if active_box.blink_cursor():
         _mark_dirty()
 
@@ -179,7 +212,7 @@ def check_events(
                     activate_box(None)
         elif not isinstance(active_box, type(None)):
             active_box.handle_event(event, display)
-        
+
         if event.type == pygame.MOUSEBUTTONUP:
             # Must be cleared after boxes handle
             if event.button == 1:
@@ -314,7 +347,7 @@ class Text:
 
     def change_text(self, text):
         """Change the original text.
-        
+
         Line likely will need rewrapped.
         """
         self.all_text = text
@@ -818,8 +851,6 @@ class _TextWrap:
         # IMPORTANT: Only wrap first line changed and past.
         #            Save line_num between wraps unless after changed line
         #            set to changed line in that case
-        # IMPORTANT: Insert printable characters. Allow use of mods (pygame built in?)
-        # IMPORTANT: Backspace support
 
         self._stop_coast()
         self.lines.clear()
@@ -1012,7 +1043,7 @@ class TextBox:
     """
 
     def __init__(self, pins: Iterable[int]):
-        self.pins = pins  # TODO: Support fixed-width/height
+        self.pins = pins  # LONGTERM: Support fixed-width/height
         self.border_width = DEFAULT_BORDER_WIDTH
         self.border_color = DEFAULT_BORDER_COLOR
 
@@ -1185,30 +1216,47 @@ class InputBox(TextBox):
 
     def insert_char(self, char):
         """Insert a given char at the cursor."""
+        char = _check_char(char)
+        if isinstance(char, type(None)):
+            return
+
         with self.text_wrap.text_lock:
             returns = self._update_cursor_pos()
             if isinstance(returns, type(None)):
                 return
-            line_num, text_obj, index, last_char = returns
+            line_num, text_obj, index = returns
             all_text = text_obj.all_text
-            text = f"{all_text[:index]}{char}{all_text[index:]}"
+            if char == "backspace":
+                if index == 0:
+                    text = all_text
+                else:
+                    text = f"{all_text[:index - 1]}{all_text[index:]}"
+            elif char == "delete":
+                if len(all_text) <= index:
+                    text = all_text
+                else:
+                    text = f"{all_text[:index]}{all_text[index + 1:]}"
+            else:
+                text = f"{all_text[:index]}{char}{all_text[index:]}"
             text_obj.change_text(text)
             self.text_wrap.mark_wrap()
             self.text_wrap._wrap_new_lines()
-            self.move_cursor_chars(1)
-            if last_char:
+
+            if char == "backspace":
+                self.move_cursor_chars(-1)
+            elif char != "delete":
                 self.move_cursor_chars(1)
         _mark_dirty()
 
     def move_cursor_direction(self, direction):
         """Move the cursor a given direction.
-        
+
         Parameters
         ----------
         direction
-            The direction to move the cursor. 
+            The direction to move the cursor.
             "u": One line Up, "d": One line Down, INT: Left and Right
-        
+
         """
         with self.text_wrap.text_lock:
             if isinstance(self.cursor_rect, type(None)):
@@ -1244,7 +1292,7 @@ class InputBox(TextBox):
         self.cursor_index = max(0, self.cursor_index)
         self.cursor_index = min(num_chars, self.cursor_index)
 
-    def _update_cursor_pos(self, allow_scroll=True):
+    def _update_cursor_pos(self, allow_scroll=True, move_left=False):
         """Update the box to reflect the cursor's position.
 
         Parameters
@@ -1252,6 +1300,10 @@ class InputBox(TextBox):
         allow_scroll
             When true, scroll the screen to contain cursor.
             Otherwise, change cursor index to remain on screen.
+
+        move_left
+            When the cursor is in a position in which it must be moved,
+            such as at the end of the line, move it left a character instead of right.
 
         """
         self._bind_cursor()
@@ -1268,11 +1320,11 @@ class InputBox(TextBox):
 
             text_obj = None
             sub_index = 0
-            last_char_on_line = False
+            after_dash = False
             for _line_num, line in enumerate(self.text_wrap.lines):
                 height = line.height
                 x_pos = 0
-                for text in line:
+                for text_num, text in enumerate(line):
                     if text_obj != text:
                         sub_index = 0
                         text_obj = text
@@ -1281,16 +1333,19 @@ class InputBox(TextBox):
                         # cursor within segment
                         remaining_chars = self.cursor_index - index
                         segment_before_cursor = segment[:remaining_chars]
-                        segment_after_cursor = segment[remaining_chars:]
                         for char in segment_before_cursor:
                             if char == text.all_text[sub_index]:
                                 # Determine all_text position of cursor
                                 # Ignore chars not in all_text (e.g. -)
                                 sub_index += 1
-                        if segment_after_cursor:
-                            if segment_after_cursor[0] != text.all_text[sub_index]:
-                                # Next char not in all text (e.g. -)
-                                last_char_on_line = True
+                        if not segment_before_cursor and sub_index != 0:
+                            if _line_num != 0:
+                                prev_line = self.text_wrap.lines[_line_num - 1]
+                                prev_segment = prev_line.get_text_segment(text)
+                                if text.all_text[sub_index - 1] != prev_segment[-1]:
+                                    # Final char on prev line not in all_text (e.g. -)
+                                    after_dash = True
+                                    found = True
                         x_pos += text.get_size(segment_before_cursor)[0]
                         found = True
                         break
@@ -1318,6 +1373,13 @@ class InputBox(TextBox):
 
             final_line_num = self.text_wrap._get_final_line_num()
 
+            if after_dash:
+                if move_left:
+                    self.move_cursor_chars(-1)
+                else:
+                    self.move_cursor_chars(1)
+                break
+
             if not found:
                 # Index not yet wrapped.
                 self.text_wrap.scroll_lines(1)
@@ -1339,7 +1401,7 @@ class InputBox(TextBox):
             self.cursor_rect = [x_pos, y_pos, DEFAULT_CURSOR_WIDTH, height]
             _mark_dirty()
             break
-        return line_num, text_obj, sub_index, last_char_on_line
+        return line_num, text_obj, sub_index
 
     def get_index_from_point(self, point):
         """Determine a character index based on a given point."""
@@ -1405,16 +1467,16 @@ class InputBox(TextBox):
     def move_cursor_chars(self, num_chars):
         """Move the cursor the given number of chars left or right."""
         self.cursor_index += num_chars
-        self._update_cursor_pos()
+        self._update_cursor_pos(move_left=num_chars < 0)
 
     def move_cursor_lines(self, lines):
         """Move the cursor up or down.
-        
+
         Parameter
         ---------
         lines
             If positive, move one line down, else one line up.
-            
+
         """
         current_line = self._update_cursor_pos()[0]
         if lines < 0:
@@ -1483,3 +1545,5 @@ if __name__ == "__main__":
     import doctest
 
     doctest.testmod()
+
+# CLEAN: Sort out type annotations
