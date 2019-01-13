@@ -26,7 +26,7 @@ DEFAULT_BORDER_WIDTH = 1
 DEFAULT_BORDER_COLOR = (255, 255, 255)
 DEFAULT_INDICATOR_COLOR = (125, 125, 255)
 DEFAULT_TEXT_COLOR = (255, 255, 255)
-DEFAULT_CURSOR_COLOR = (255, 255, 255)
+DEFAULT_CURSOR_COLOR = (125, 125, 125)
 DEFAULT_CURSOR_WIDTH = 1
 
 # TextWrap Constants
@@ -736,7 +736,14 @@ class _TextWrap:
         return line
 
     def _wrap_new_lines(self, all_=False):
-        """Wrap text into lines."""
+        """Wrap text into lines.
+        
+        Parameters
+        ----------
+        all_
+            Force wrap all lines even if they don't fit on screen.
+            
+        """
 
         def text_needs_wrapped():
             """Check if text still needs wrapped."""
@@ -846,8 +853,15 @@ class _TextWrap:
             for list_ in lists:
                 _purge_segments_from_list(list_, used_text_ids)
 
-    def mark_wrap(self):
-        """Set to be re-wrapped."""
+    def mark_wrap(self, start_line=0):
+        """Set to be re-wrapped.
+
+        Parameters
+        ----------
+        start_line
+            Wrap this line and all past it.
+
+        """
         # IMPORTANT: Only wrap first line changed and past.
         #            Save line_num between wraps unless after changed line
         #            set to changed line in that case
@@ -890,9 +904,16 @@ class _TextWrap:
     def change_text(self, label, string):
         """Change all text objects with the given label to the new text."""
         with self.text_lock:
-            for text in self.get_labeled_text(label):
+            affected_text = self.get_labeled_text(label)
+            for text in affected_text:
                 text.change_text(string)
-            self.mark_wrap()
+            first_changed = affected_text[0]
+            line_num = 0
+            for _line_num, line in enumerate(self.lines):
+                if id(first_changed) in line:
+                    line_num = _line_num
+                    break
+            self.mark_wrap(line_num)
         _mark_dirty()
 
     def _get_lines(self):
@@ -1239,7 +1260,7 @@ class InputBox(TextBox):
             else:
                 text = f"{all_text[:index]}{char}{all_text[index:]}"
             text_obj.change_text(text)
-            self.text_wrap.mark_wrap()
+            self.text_wrap.mark_wrap(line_num)
             self.text_wrap._wrap_new_lines()
 
             if char == "backspace":
