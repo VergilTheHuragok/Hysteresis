@@ -6,11 +6,12 @@ from update_server import update
 
 
 LOG_PATH = "/home/reece/server/log.txt"
-LOG_SIZE = 100
+LOG_SIZE = 1000
 STOP_PATH = "/home/reece/server/STOP"
 PYTHON_PATH = "/etc/python3.7/python"
 SERVER_PATH = "/home/reece/server/Hysteresis/server/server.py"
 SERVER_FOLDER = "/home/reece/server/Hysteresis/server/"
+
 
 def close():
     """Close listeners."""
@@ -28,7 +29,7 @@ while True:
 
     if os.path.exists(STOP_PATH):
         with open(LOG_PATH, "a") as f:
-            f.write("stop " + ctime() + "\n")
+            f.write("stop " + ctime() + "/n")
         break
 
     with open(LOG_PATH, "a") as f:
@@ -37,14 +38,14 @@ while True:
     # Halve log if greater than 1000 lines
     lines = None
     with open(LOG_PATH, "r") as f:
-        lines_num = f.read().count("\n")
+        contents = f.read()
+        lines_num = contents.count("\n")
         if lines_num > LOG_SIZE:
-            lines = f.read().split("\n")
+            lines = contents.split("\n")
             line_index = lines_num - LOG_SIZE
             lines = lines[line_index:]
     if not isinstance(lines, type(None)):
         os.remove(LOG_PATH)
-        sleep(5)
         with open(LOG_PATH, "a") as f:
             for line in lines:
                 f.write(line + "\n")
