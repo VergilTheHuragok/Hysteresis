@@ -39,9 +39,12 @@ while True:
     with open(LOG_PATH, "r") as f:
         lines_num = f.read().count("\n")
         if lines_num > LOG_SIZE:
-            lines = f.read().split("\n")[lines_num - LOG_SIZE:]
+            lines = f.read().split("\n")
+            line_index = lines_num - LOG_SIZE
+            lines = lines[line_index:]
     if not isinstance(lines, type(None)):
         os.remove(LOG_PATH)
+        sleep(5)
         with open(LOG_PATH, "a") as f:
             for line in lines:
                 f.write(line + "\n")
