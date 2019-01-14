@@ -6,7 +6,7 @@ from update_server import update
 
 
 LOG_PATH = "/home/reece/server/log.txt"
-LOG_SIZE = 10000
+LOG_SIZE = 100
 STOP_PATH = "/home/reece/server/STOP"
 PYTHON_PATH = "/etc/python3.7/python"
 SERVER_PATH = "/home/reece/server/Hysteresis/server/server.py"
