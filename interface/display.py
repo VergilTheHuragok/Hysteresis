@@ -131,7 +131,7 @@ def _check_held_keys():
 
 def _blink_cursor():
     """Tick the active cursor to reflect blinks."""
-    if isinstance(active_box, type(None)):
+    if not isinstance(active_box, InputBox):
         return
 
     if active_box.blink_cursor():
@@ -726,16 +726,16 @@ class _TextWrap:
 
         self.was_at_bottom = False
 
-    def _next_line(self):
+    def _next_line(self, force_new=False):
         """Get the next line to be filled."""
-        if self.lines:
+        if self.lines and not force_new:
             line = self.lines.pop()
             self.current_height -= line.height
         else:
             line = _Line()
         return line
 
-    def _wrap_new_lines(self, all_=False):
+    def _wrap_new_lines(self, all_=False, force_new_line=False):
         """Wrap text into lines.
         
         Parameters
@@ -759,7 +759,7 @@ class _TextWrap:
             assert not isinstance(self.pos, type(None))
 
             box_width = self.pos[2]
-            line = self._next_line()
+            line = self._next_line(force_new_line)
 
             new_text_segment = None
 
@@ -853,6 +853,29 @@ class _TextWrap:
             for list_ in lists:
                 _purge_segments_from_list(list_, used_text_ids)
 
+    def _find_segment_index(self, text_obj):
+        """Find the index of the end of the text_obj after mark_wrap."""
+        index = 0
+        for _line_num, line in enumerate(self.lines):
+            for text in line:
+                if text_obj == text:
+                    # Find first line with text_obj
+                    break
+            else:
+                continue
+            sub_index = 0
+            segment = line.get_text_segment(text)
+            for char in segment:
+                if len(text.all_text) <= sub_index:
+                    # End of all_text, remaining is from dashes. i guess.
+                    break
+                if char == text.all_text[index + sub_index]:
+                    # Determine all_text position of needle
+                    # Ignore chars not in all_text (e.g. -)
+                    sub_index += 1
+            index += sub_index
+        return index
+
     def mark_wrap(self, start_line=0):
         """Set to be re-wrapped.
 
@@ -862,20 +885,58 @@ class _TextWrap:
             Wrap this line and all past it.
 
         """
-        # IMPORTANT: Only wrap first line changed and past.
-        #            Save line_num between wraps unless after changed line
-        #            set to changed line in that case
+        if start_line > 0:
+            # Rewrap previous line in case it is affected
+            start_line -= 1
 
         self._stop_coast()
-        self.lines.clear()
-        self.current_height = 0
-        # Move old lines back into
-        self._purge_segments()
-        self.wrapped_text_list.reverse()
-        self.new_text_list.extendleft(self.wrapped_text_list)
-        self.wrapped_text_list.clear()
-        self.line_num = 0
+        purged_line_list = None
+        purged_lines = []
+        if start_line == 0:
+            self.lines.clear()
+        else:
+            purged_lines = list(islice(self.lines, start_line, None))
+            purged_line_list = [line.text_list for line in purged_lines]
+            self.lines = list(islice(self.lines, 0, start_line))
+        self.line_num = max(0, min(len(self.lines) - 1, self.line_num))
+        self.calculate_height()
+
         self.remaining_segments.clear()
+        if self.lines and purged_lines:
+            first_dirty_line = purged_lines[0]
+            first_dirty_text = first_dirty_line[0]
+            if id(first_dirty_text) in self.lines[-1]:
+                # Text object split between clean and dirty
+                end_index = self._find_segment_index(first_dirty_text)
+                remaining_segment = first_dirty_text.all_text[end_index:]
+                self.remaining_segments[id(first_dirty_text)] = remaining_segment
+
+        # Move old lines back into
+        old_text = []
+        start_ind = None
+        for text_num, text in enumerate(self.wrapped_text_list):
+            if isinstance(start_ind, type(None)):
+                for line in purged_lines:
+                    if id(text) in line:
+                        start_ind = text_num
+                        old_text.append(text)
+                        break
+            else:
+                old_text.append(text)
+
+        if not old_text:
+            old_text = self.wrapped_text_list
+        old_text.reverse()
+        if not isinstance(purged_line_list, type(None)):
+            self._purge_segments(purged_line_list)
+        else:
+            self._purge_segments()
+        self.new_text_list.extendleft(old_text)
+        if not isinstance(start_ind, type(None)):
+            self.wrapped_text_list = deque(islice(self.wrapped_text_list, 0, start_ind))
+        else:
+            self.wrapped_text_list.clear()
+        self._purge_segments()
 
     def get_box_string(self):
         """Get all text in box as a string."""
@@ -941,7 +1002,7 @@ class _TextWrap:
         self.line_num += num_lines
         self.line_num = max(0, self.line_num)
         to_scroll = len(self.lines) - self.line_num - 1
-        if to_scroll < 0:
+        if to_scroll < 0 and self.lines:
             # Ensure we don't scroll past the last line
             self.scroll_lines(to_scroll)
         self.calculate_height()
@@ -1137,14 +1198,6 @@ class TextBox:
                         self.text_wrap.drag_start_pos, event.pos
                     ):
                         self.text_wrap.drag_start_pos = event.pos
-            elif event.type == pygame.MOUSEBUTTONUP:
-                if event.button == 1:
-                    if self.text_wrap.drag_start_pos == event.pos:
-                        # Clicked in place
-                        box_rect = self._get_rect(*get_dims(display))
-                        point = (event.pos[0] - box_rect[0], event.pos[1] - box_rect[1])
-                        self.cursor_index = self.get_index_from_point(point)
-                        self._update_cursor_pos()
 
             # Return True if event is position based to break outside loop
             return position_based
@@ -1232,6 +1285,15 @@ class InputBox(TextBox):
             else:
                 key_name = pygame.key.name(event.key)
                 self.insert_char(key_name)
+        elif event.type == pygame.MOUSEBUTTONUP:
+            if event.button == 1:
+                if self.text_wrap.drag_start_pos == event.pos:
+                    with self.text_wrap.text_lock:
+                        # Clicked in place
+                        box_rect = self._get_rect(*get_dims(display))
+                        point = (event.pos[0] - box_rect[0], event.pos[1] - box_rect[1])
+                        self.cursor_index = self.get_index_from_point(point)
+                        self._update_cursor_pos()
 
         return within_box
 
@@ -1266,6 +1328,7 @@ class InputBox(TextBox):
             if char == "backspace":
                 self.move_cursor_chars(-1)
             elif char != "delete":
+                self._update_cursor_pos()
                 self.move_cursor_chars(1)
         _mark_dirty()
 
@@ -1355,6 +1418,9 @@ class InputBox(TextBox):
                         remaining_chars = self.cursor_index - index
                         segment_before_cursor = segment[:remaining_chars]
                         for char in segment_before_cursor:
+                            if len(text.all_text) <= sub_index:
+                                # End of all_text, remaining is from dashes. i guess.
+                                break
                             if char == text.all_text[sub_index]:
                                 # Determine all_text position of cursor
                                 # Ignore chars not in all_text (e.g. -)
@@ -1373,6 +1439,9 @@ class InputBox(TextBox):
                     x_pos += text.get_size(segment)[0]
                     index += len(segment)
                     for char in segment:
+                        if len(text.all_text) <= sub_index:
+                            # End of all_text, remaining is from dashes. i guess.
+                            break
                         if char == text.all_text[sub_index]:
                             # Determine all_text position of cursor
                             # Ignore chars not in all_text (e.g. -)

@@ -21,7 +21,7 @@ while interface.start.get_running():
     text = (
         "".join(
             random.choice(string.printable)
-            for i in range(0, random.randint(1, 50))
+            for i in range(0, random.randint(1, 1000))
         )
     )
     y.text_wrap.change_text("main", text)
