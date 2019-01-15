@@ -56,8 +56,8 @@ CURSOR_KEYS = {
     pygame.K_DOWN: "d",
     pygame.K_UP: "u",
 }
-CURSOR_REPEAT_TIME = 0.02
-CURSOR_REPEAT_THRESHOLD = 0.3
+KEY_REPEAT_TIME = 0.02
+KEY_REPEAT_THRESHOLD = 0.3
 CURSOR_BLINK_INTERVAL = 0.5
 
 KEYBOARD_LAYOUT = "`1234567890-=[]\\;',./"
@@ -67,7 +67,6 @@ CHAR_NAMES = {"space": " ", "backspace": "backspace", "delete": "delete"}
 
 def _check_char(char: str):
     """Apply modifiers to given char."""
-    # TODO: allow holding keys for repeat. Update cursor keys to use that method
     if char in string.printable:
         mods = pygame.key.get_mods()
         shifted = pygame.KMOD_SHIFT & mods
@@ -115,18 +114,17 @@ def _check_held_keys():
     if not isinstance(active_box, InputBox):
         # Active box is not an input box
         return
-    if isinstance(active_box.cursor_key_press_time, type(None)):
-        # Key press not yet handled by active_box
-        return
 
     keys = pygame.key.get_pressed()
     if 1 not in keys:
+        # No keys are pressed
         return
 
     pressed_keys = [ind for ind, key in enumerate(keys) if key == 1]
+    # Get indexes of pressed keys
     for key in pressed_keys:
-        if key in CURSOR_KEYS:
-            active_box.handle_cursor_key(key)
+        active_box.handle_key_repeat(key)
+
 
 
 def _blink_cursor():
@@ -184,6 +182,10 @@ def activate_box(box):
     """Set a textbox to active."""
     global active_box
     active_box = box
+    for box in textboxes:
+        if isinstance(box, InputBox):
+            box.reset_key_repeat()
+
     _mark_dirty()
 
 
@@ -202,6 +204,7 @@ def check_events(
             for box in textboxes:
                 if isinstance(box, InputBox):
                     box.reset_cursor_repeat()
+                    box.reset_key_repeat(event.key)
 
         if "pos" in event.dict:
             for box in textboxes:
@@ -1263,8 +1266,8 @@ class InputBox(TextBox):
 
         self.cursor_index = 0
         self.cursor_rect = None
-        self.cursor_key_press_time = None
-        self.cursor_repeating = False
+        self.key_press_times = {}
+        self.key_repeats = set()
         self.cursor_blink_time = 0
         self.cursor_blinked = False
 
@@ -1281,7 +1284,7 @@ class InputBox(TextBox):
                 direction = CURSOR_KEYS[event.key]
                 self.move_cursor_direction(direction)
 
-                self.cursor_key_press_time = get_time()
+                self.key_press_times[event.key] = get_time()
             else:
                 key_name = pygame.key.name(event.key)
                 self.insert_char(key_name)
@@ -1356,19 +1359,38 @@ class InputBox(TextBox):
 
     def reset_cursor_repeat(self):
         """Reset the cursor repeat vars."""
-        self.cursor_key_press_time = None
-        self.cursor_repeating = False
+        for key in CURSOR_KEYS:
+            if key in self.key_press_times:
+                del self.key_press_times[key]
+            if key in self.key_repeats:
+                self.key_repeats.remove(key)
 
-    def handle_cursor_key(self, key):
-        """Handle cursor key repeats."""
-        last_press = self.cursor_key_press_time
-        if self.cursor_repeating:
-            if get_time() > self.cursor_key_press_time + CURSOR_REPEAT_TIME:
-                self.cursor_key_press_time = get_time()
-                self.move_cursor_direction(CURSOR_KEYS[key])
-        elif get_time() > last_press + CURSOR_REPEAT_THRESHOLD:
-            self.cursor_repeating = True
-            self.cursor_key_press_time = get_time()
+    def reset_key_repeat(self, key=None):
+        """Reset the key repeats."""
+        if isinstance(key, type(None)):
+            self.key_press_times.clear()
+            self.key_repeats.clear()
+        else:
+            if key in self.key_press_times:
+                del self.key_press_times[key]
+            if key in self.key_repeats:
+                self.key_repeats.remove(key)
+
+    def handle_key_repeat(self, key):
+        """Handle key repeats."""
+        if key not in self.key_press_times:
+            self.key_press_times[key] = get_time()
+        last_press = self.key_press_times[key]
+        if key in self.key_repeats:
+            if get_time() > self.key_press_times[key] + KEY_REPEAT_TIME:
+                self.key_press_times[key] = get_time()
+                if key in CURSOR_KEYS:
+                    self.move_cursor_direction(CURSOR_KEYS[key])
+                else:
+                    self.insert_char(pygame.key.name(key))
+        elif get_time() > last_press + KEY_REPEAT_THRESHOLD:
+            self.key_repeats.add(key)
+            self.key_press_times[key] = get_time()
 
     def _bind_cursor(self):
         """Restrict cursor to remain within box."""
